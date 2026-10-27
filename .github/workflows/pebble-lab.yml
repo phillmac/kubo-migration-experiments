@@ -1,0 +1,76 @@
+name: Synthetic Pebble bridge lab
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/pebble-lab.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: synthetic-pebble-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  synthetic-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Unit-test guardrails (not a migration result)
+        run: python3 -m unittest discover -s tests -p test_kubo_migration_lab.py -v
+      - name: Stage official versioned binaries and published checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          base="$RUNNER_TEMP/kubo-scratch-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -m 700 "$base"
+          echo "LAB_BASE=$base" >> "$GITHUB_ENV"
+          for version in 0.31.0 0.34.1 0.43.1; do
+            dir="$base/bin/$version"
+            mkdir -p "$dir"
+            file="kubo_v${version}_linux-amd64.tar.gz"
+            origin="https://dist.ipfs.tech/kubo/v${version}"
+            curl --fail --location --max-time 120 --output "$dir/$file" "$origin/$file"
+            curl --fail --location --max-time 30 --output "$dir/$file.sha512" "$origin/$file.sha512"
+            python3 - "$dir/$file" <<'PY'
+          import hashlib, pathlib, re, sys, tarfile
+          p=pathlib.Path(sys.argv[1]); expected=pathlib.Path(str(p)+'.sha512').read_text().split()[0]
+          if not re.fullmatch('[0-9a-fA-F]{128}',expected): raise SystemExit('Invalid SHA512 manifest')
+          if hashlib.sha512(p.read_bytes()).hexdigest()!=expected.lower(): raise SystemExit('SHA512 mismatch')
+          with tarfile.open(p,'r:gz') as t:
+              member=t.getmember('kubo/ipfs')
+              if not member.isfile() or member.size>512*1024*1024: raise SystemExit('Unexpected archive member')
+              binary=p.parent/'ipfs'; binary.write_bytes(t.extractfile(member).read()); binary.chmod(0o500)
+          digest=hashlib.sha256(binary.read_bytes()).hexdigest()
+          (p.parent/'binary.sha256').write_text(digest+'\n')
+          print(p.name, expected, digest)
+          PY
+          done
+      - name: Run synthetic bridge and target-open probe with no network
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=10s 600s \
+            sudo unshare --net --setgid="$(id -g)" --setuid="$(id -u)" -- \
+            env -i PATH=/usr/bin:/bin HOME="$LAB_BASE" \
+            /usr/bin/python3 "$GITHUB_WORKSPACE/scripts/kubo_migration_lab.py" \
+              --base "$LAB_BASE" \
+              --old "$LAB_BASE/bin/0.31.0/ipfs" --old-sha256 "$(cat "$LAB_BASE/bin/0.31.0/binary.sha256")" \
+              --bridge "$LAB_BASE/bin/0.34.1/ipfs" --bridge-sha256 "$(cat "$LAB_BASE/bin/0.34.1/binary.sha256")" \
+              --target "$LAB_BASE/bin/0.43.1/ipfs" --target-sha256 "$(cat "$LAB_BASE/bin/0.43.1/binary.sha256")"
+      - name: Retain reports only, never repository configs or private keys
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-pebble-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/kubo-scratch-*/kubo-lab-*/evidence/*.json
+            ${{ runner.temp }}/kubo-scratch-*/bin/*/*.sha512
+            ${{ runner.temp }}/kubo-scratch-*/bin/*/binary.sha256
+          if-no-files-found: warn
+          retention-days: 14
