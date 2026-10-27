@@ -175,12 +175,39 @@ class Lab:
         return dest
 
 
+def migrate_schema(lab, binary, repo):
+    """Explicit schema16->18 migration of a guarded synthetic copy only."""
+    repo = Path(repo)
+    guard_repo(lab.root, repo)
+    before_version = (repo / "version").read_text().strip()
+    if before_version != "16":
+        raise Refusal("Schema migration requires an exact version16 fixture")
+    before = json.loads((repo / "config").read_text())
+    if "Identity" not in before or "Datastore" not in before:
+        raise Refusal("Missing identity or datastore baseline")
+    disk_spec = digest(repo / "datastore_spec")
+    _, output = lab.run(binary, repo, "repo", "migrate", "--to=18")
+    guard_repo(lab.root, repo)
+    if (repo / "version").read_text().strip() != "18":
+        raise Refusal("Migrator did not produce repository schema18")
+    after = json.loads((repo / "config").read_text())
+    if before["Identity"] != after.get("Identity"):
+        raise Refusal("Migration changed synthetic identity")
+    if before["Datastore"] != after.get("Datastore") or digest(repo / "datastore_spec") != disk_spec:
+        raise Refusal("Migration changed datastore layout/configuration")
+    return {"from": before_version, "to": "18", "identity_preserved": True,
+            "datastore_preserved": True,
+            "changed_config_sections": sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k)),
+            "stdout": output.decode("utf-8", "replace")[-6000:]}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True, help="Existing scratch parent; creates a NEW random child")
     for label in ("old", "bridge", "target"):
         parser.add_argument("--" + label, required=True, help="Verified Kubo executable")
         parser.add_argument("--" + label + "-sha256", required=True)
+    parser.add_argument("--migrate-target", action="store_true", help="Explicitly run bundled schema16->18 migration on an additional synthetic clone")
     args = parser.parse_args()
     os.umask(0o077)
     def interrupted(signum, _frame):
@@ -233,6 +260,18 @@ def main():
             report["target_migration_verified"] = True
         else:
             report["target_status"] = "blocked; inspect error and stage explicit offline migrations"
+        if args.migrate_target:
+            if code != 1 or "repo needs migration" not in lab.events[-1]["stderr"].lower():
+                raise Refusal("Expected schema-version refusal was not established")
+            migrated = lab.clone(bridge, "target-migrated")
+            report["schema_migration"] = migrate_schema(lab, bins["target"], migrated)
+            target_fp = lab.fingerprint(bins["target"], migrated, root, raw, payload, raw_payload)
+            if target_fp != baseline:
+                raise Refusal("Migrated target changed synthetic content/pins/MFS")
+            report["target_migration_verified"] = True
+            report["target_status"] = "explicit schema migration and fingerprint verified"
+            report["target_repo_version"] = (migrated / "version").read_text().strip()
+            report["target_format_markers"] = [str(p.relative_to(migrated)) for p in migrated.rglob("*format-version*")]
         rollback = lab.clone(repo, "rollback-control")
         if lab.fingerprint(bins["old"], rollback, root, raw, payload, raw_payload) != baseline:
             raise Refusal("Old-copy rollback control failed")
@@ -240,7 +279,7 @@ def main():
         if tree_hashes(repo) != sealed:
             raise Refusal("Sealed seed changed")
         report["seed_unchanged"] = True
-        report["status"] = "bridge-smoke-complete; not production acceptance"
+        report["status"] = ("target-migration-complete; synthetic-only, not production acceptance" if args.migrate_target else "bridge-smoke-complete; not production acceptance")
     except Exception as exc:
         report["status"] = "failed"
         report["error"] = str(exc)
