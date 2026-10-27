@@ -51,6 +51,16 @@ def cid_text(value):
     return 'b' + base64.b32encode(value).decode().lower().rstrip('=')
 
 
+def verified_ok(item):
+    # PinStatus is an embedded Go struct: JSON is flattened and false Ok omitted.
+    require(isinstance(item, dict) and isinstance(item.get('Cid'), str), 'Not a per-pin verify record')
+    if item.get('Ok') is True:
+        return True
+    require(isinstance(item.get('BadNodes'), list) and len(item['BadNodes']) > 0,
+            'Missing broken-node evidence; do not classify stream errors as broken pins')
+    return False
+
+
 def make_car(path, count=4096):
     require(64 <= count <= 8192, 'Bounded root count')
     child = b'one synthetic shared child deliberately removed after pinning\n'
@@ -111,8 +121,13 @@ class PinLab:
         conf['Addresses']['Swarm'] = []
         conf['Bootstrap'] = []
         conf['AutoConf'] = {'Enabled': False}
+        conf.setdefault('DNS', {})['Resolvers'] = {}
+        conf.setdefault('Routing', {})['DelegatedRouters'] = []
+        conf.setdefault('Ipns', {})['DelegatedPublishers'] = []
         config_path.write_text(json.dumps(conf))
-        report = {'cycles': [], 'pin_root_count': count, 'status': 'starting'}
+        report = {'cycles': [], 'pin_root_count': count, 'status': 'starting',
+                  'offline_fixture_config_normalized': ['Addresses', 'Bootstrap', 'AutoConf', 'DNS.Resolvers',
+                                                        'Routing.DelegatedRouters', 'Ipns.DelegatedPublishers']}
         with tempfile.TemporaryFile(dir=self.root / 'home') as log:
             proc = subprocess.Popen([str(binary), 'daemon', '--offline', '--migrate=false'],
                                     cwd=self.root, env=self.env(repo), stdin=subprocess.DEVNULL,
@@ -158,8 +173,7 @@ class PinLab:
                 for i in range(8):
                     first, elapsed = request('pin/verify', {'verbose': 'true'}, abandon=True)
                     item = json.loads(first)
-                    require('PinStatus' in item, 'Unexpected verify stream format')
-                    cycle = {'cycle': i + 1, 'first_record_broken': not item['PinStatus'].get('Ok', False),
+                    cycle = {'cycle': i + 1, 'first_record_broken': not verified_ok(item),
                              'disconnect_after_one_record_seconds': elapsed}
                     _, cycle['pin_ls_seconds'] = request('pin/ls', {'type': 'recursive'})
                     _, cycle['pin_add_seconds'] = request('pin/add', {'arg': probe, 'recursive': 'false'})
@@ -167,7 +181,7 @@ class PinLab:
                     report['cycles'].append(cycle)
                 data, seconds = request('pin/verify', {'verbose': 'true'})
                 rows = [json.loads(line) for line in data.splitlines() if line]
-                broken = sum(not r['PinStatus'].get('Ok', False) for r in rows if 'PinStatus' in r)
+                broken = sum(not verified_ok(r) for r in rows)
                 require(broken == count, 'Did not verify all deliberately broken roots')
                 report.update(status='responsive', fully_drained_broken_roots=broken, final_verify_seconds=seconds)
             except Exception as exc:
@@ -209,7 +223,6 @@ def main():
         raw_file = x.root / 'probe.bin'
         raw_file.write_bytes(b'synthetic responsiveness probe\n')
         probe = x.cli(bins['old'], seed, 'block', 'put', '--cid-codec=raw', str(raw_file)).decode().strip()
-        # The only destructive fixture step: exact payload check before unlink on CLOSED, owned flatfs.
         key = base64.b32encode(child_cid[2:]).decode().rstrip('=')
         matches = list((seed / 'blocks').rglob(key + '.data'))
         require(len(matches) == 1 and matches[0].read_bytes() == child, 'Exact synthetic child file not located')
