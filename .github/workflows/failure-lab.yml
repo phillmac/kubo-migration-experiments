@@ -1,0 +1,107 @@
+name: Synthetic failure recovery lab
+on:
+  push:
+    branches: [experiment/failure-recovery-20261027]
+    paths: ['scripts/**', 'tests/**', '.github/workflows/failure-lab.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: failure-lab-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  fault:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        case: [sigkill, enospc, missing-sst, pin-stream]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Unit tests and syntax
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 -m py_compile scripts/failure_lab.py scripts/pin_stream_lab.py
+      - name: Stage checksum-verified official binaries and bounded scratch
+        shell: bash
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          umask 077
+          base="$RUNNER_TEMP/kubo-scratch-failure-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$CASE"
+          mkdir -m 700 "$base"
+          echo "LAB_BASE=$base" >> "$GITHUB_ENV"
+          command -v strace
+          for version in 0.31.0 0.34.1 0.43.1; do
+            dir="$base/bin/$version"
+            mkdir -p "$dir"
+            file="kubo_v${version}_linux-amd64.tar.gz"
+            origin="https://github.com/ipfs/kubo/releases/download/v${version}"
+            curl -fLsS --connect-timeout 15 --max-time 180 -o "$dir/$file" "$origin/$file"
+            curl -fLsS --connect-timeout 15 --max-time 30 -o "$dir/$file.sha512" "$origin/$file.sha512"
+            python3 - "$dir/$file" "$version" <<'PY'
+          import hashlib, pathlib, re, sys, tarfile
+          sys.path.insert(0, 'scripts')
+          from failure_lab import PINNED
+          p=pathlib.Path(sys.argv[1]); expected=pathlib.Path(str(p)+'.sha512').read_text().split()[0]
+          assert re.fullmatch('[0-9a-fA-F]{128}', expected)
+          assert hashlib.sha512(p.read_bytes()).hexdigest() == expected.lower()
+          with tarfile.open(p, 'r:gz') as t:
+              member=t.getmember('kubo/ipfs')
+              assert member.isfile() and member.size < 512*1024*1024
+              binary=p.parent/'ipfs'; binary.write_bytes(t.extractfile(member).read())
+          actual=hashlib.sha256(binary.read_bytes()).hexdigest()
+          assert actual == dict(PINNED.values())[sys.argv[2]]
+          binary.chmod(0o500)
+          (p.parent/'binary.sha256').write_text(actual+'\n')
+          print(sys.argv[2], actual)
+          PY
+          done
+          if [ "$CASE" = enospc ]; then
+            mkdir -m 700 "$base/limited"
+            sudo mount -t tmpfs -o "size=128M,nodev,nosuid,noexec,mode=0700,uid=$(id -u),gid=$(id -g)" tmpfs "$base/limited"
+          fi
+      - name: Run unprivileged in private loopback-only namespace
+        shell: bash
+        env:
+          CASE: ${{ matrix.case }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=10s 540s sudo unshare --net -- \
+            /bin/bash -c '
+              set -euo pipefail
+              ip link set lo up
+              uid="$1"; gid="$2"; base="$3"; workspace="$4"; scenario="$5"
+              if [ "$scenario" = pin-stream ]; then
+                exec setpriv --reuid "$uid" --regid "$gid" --clear-groups \
+                  env -i PATH=/usr/bin:/bin HOME="$base" \
+                  /usr/bin/python3 "$workspace/scripts/pin_stream_lab.py" --base "$base"
+              else
+                exec setpriv --reuid "$uid" --regid "$gid" --clear-groups \
+                  env -i PATH=/usr/bin:/bin HOME="$base" \
+                  /usr/bin/python3 "$workspace/scripts/failure_lab.py" --base "$base" --case "$scenario" --size-mib 64
+              fi
+            ' _ "$(id -u)" "$(id -g)" "$LAB_BASE" "$GITHUB_WORKSPACE" "$CASE"
+      - name: Unmount only the dedicated pressure volume
+        if: always() && matrix.case == 'enospc'
+        shell: bash
+        run: |
+          if [ -n "${LAB_BASE:-}" ] && mountpoint -q "$LAB_BASE/limited"; then
+            sudo umount "$LAB_BASE/limited"
+          fi
+      - name: Preserve synthetic reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-${{ matrix.case }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/kubo-scratch-failure-*/kubo-lab-*/evidence/*.json
+            ${{ runner.temp }}/kubo-scratch-failure-*/bin/*/binary.sha256
+            ${{ runner.temp }}/kubo-scratch-failure-*/bin/*/*.sha512
+          if-no-files-found: warn
+          retention-days: 14
