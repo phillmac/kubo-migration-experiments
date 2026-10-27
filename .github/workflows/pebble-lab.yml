@@ -34,9 +34,10 @@ jobs:
             dir="$base/bin/$version"
             mkdir -p "$dir"
             file="kubo_v${version}_linux-amd64.tar.gz"
-            origin="https://dist.ipfs.tech/kubo/v${version}"
-            curl --fail --location --max-time 120 --output "$dir/$file" "$origin/$file"
-            curl --fail --location --max-time 30 --output "$dir/$file.sha512" "$origin/$file.sha512"
+            origin="https://github.com/ipfs/kubo/releases/download/v${version}"
+            echo "Downloading official release $version"
+            curl --fail --location --silent --show-error --connect-timeout 15 --max-time 180 --output "$dir/$file" "$origin/$file"
+            curl --fail --location --silent --show-error --connect-timeout 15 --max-time 30 --output "$dir/$file.sha512" "$origin/$file.sha512"
             python3 - "$dir/$file" <<'PY'
           import hashlib, pathlib, re, sys, tarfile
           p=pathlib.Path(sys.argv[1]); expected=pathlib.Path(str(p)+'.sha512').read_text().split()[0]
