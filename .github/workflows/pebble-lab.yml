@@ -21,7 +21,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Unit-test guardrails (not a migration result)
-        run: python3 -m unittest discover -s tests -p test_kubo_migration_lab.py -v
+        run: python3 -m unittest discover -s tests -v
       - name: Stage official versioned binaries and published checksums
         shell: bash
         run: |
@@ -52,7 +52,7 @@ jobs:
           print(p.name, expected, digest)
           PY
           done
-      - name: Run synthetic bridge and target-open probe with no network
+      - name: Run explicit synthetic migration and restore with no network
         shell: bash
         run: |
           set -euo pipefail
@@ -60,7 +60,7 @@ jobs:
             sudo unshare --net --setgid="$(id -g)" --setuid="$(id -u)" -- \
             env -i PATH=/usr/bin:/bin HOME="$LAB_BASE" \
             /usr/bin/python3 "$GITHUB_WORKSPACE/scripts/kubo_migration_lab.py" \
-              --base "$LAB_BASE" \
+              --base "$LAB_BASE" --migrate-target \
               --old "$LAB_BASE/bin/0.31.0/ipfs" --old-sha256 "$(cat "$LAB_BASE/bin/0.31.0/binary.sha256")" \
               --bridge "$LAB_BASE/bin/0.34.1/ipfs" --bridge-sha256 "$(cat "$LAB_BASE/bin/0.34.1/binary.sha256")" \
               --target "$LAB_BASE/bin/0.43.1/ipfs" --target-sha256 "$(cat "$LAB_BASE/bin/0.43.1/binary.sha256")"
