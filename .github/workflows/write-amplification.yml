@@ -1,0 +1,98 @@
+name: Migration write amplification
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'scripts/measure_*.py'
+      - 'tests/test_measure_*.py'
+      - '.github/workflows/write-amplification.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: write-amplification-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        size_mib: [16, 64, 256]
+        replicate: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test parser and safety boundaries
+        run: python3 -m unittest discover -s tests -v
+      - name: Prepare tracing tool
+        run: |
+          if ! command -v strace; then
+            sudo apt-get update -qq
+            sudo apt-get install -y strace
+          fi
+          strace -V
+      - name: Verify official binaries before disconnecting network
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          base="$RUNNER_TEMP/kubo-scratch-$GITHUB_RUN_ID-${{ matrix.size_mib }}-${{ matrix.replicate }}"
+          mkdir -m 700 "$base"
+          echo "LAB_BASE=$base" >> "$GITHUB_ENV"
+          for version in 0.31.0 0.34.1 0.43.1; do
+            dir="$base/bin/$version"
+            mkdir -p "$dir"
+            file="kubo_v${version}_linux-amd64.tar.gz"
+            origin="https://github.com/ipfs/kubo/releases/download/v${version}"
+            curl --fail --location --silent --show-error --connect-timeout 15 --max-time 180 --output "$dir/$file" "$origin/$file"
+            curl --fail --location --silent --show-error --connect-timeout 15 --max-time 30 --output "$dir/$file.sha512" "$origin/$file.sha512"
+            python3 - "$dir/$file" "$version" <<'PY'
+          import hashlib, pathlib, re, sys, tarfile
+          pinned = {
+              '0.31.0': '28b534763361cc27c3a92e5dc4bc3683e276b695bdae80a5f8ae17f67b3f9712',
+              '0.34.1': '84640f968fe1e8b4e3c589589563c235be931bc85219f8ee306da908ee452905',
+              '0.43.1': '8768c8a2907f429f177917091e8abe250d3368d1b82ea0348332cf7e53807bf0',
+          }
+          p = pathlib.Path(sys.argv[1])
+          expected = pathlib.Path(str(p)+'.sha512').read_text().split()[0]
+          if not re.fullmatch('[0-9a-fA-F]{128}', expected): raise SystemExit('Invalid SHA512 manifest')
+          if hashlib.sha512(p.read_bytes()).hexdigest() != expected.lower(): raise SystemExit('SHA512 mismatch')
+          with tarfile.open(p, 'r:gz') as archive:
+              member = archive.getmember('kubo/ipfs')
+              if not member.isfile() or member.size > 512*1024*1024: raise SystemExit('Unexpected member')
+              binary = p.parent/'ipfs'
+              binary.write_bytes(archive.extractfile(member).read())
+          actual = hashlib.sha256(binary.read_bytes()).hexdigest()
+          if actual != pinned[sys.argv[2]]: raise SystemExit('Pinned executable digest mismatch')
+          binary.chmod(0o500)
+          (p.parent/'binary.sha256').write_text(actual+'\n')
+          print(sys.argv[2], actual)
+          PY
+          done
+      - name: Measure local synthetic migration with network disabled
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=15s 720s \
+            sudo unshare --net --setgid="$(id -g)" --setuid="$(id -u)" -- \
+            env -i PATH=/usr/bin:/bin HOME="$LAB_BASE" \
+            /usr/bin/python3 "$GITHUB_WORKSPACE/scripts/measure_migration_writes.py" \
+              --base "$LAB_BASE" --size-mib ${{ matrix.size_mib }} --replicate ${{ matrix.replicate }} \
+              --old "$LAB_BASE/bin/0.31.0/ipfs" --old-sha256 "$(cat "$LAB_BASE/bin/0.31.0/binary.sha256")" \
+              --bridge "$LAB_BASE/bin/0.34.1/ipfs" --bridge-sha256 "$(cat "$LAB_BASE/bin/0.34.1/binary.sha256")" \
+              --target "$LAB_BASE/bin/0.43.1/ipfs" --target-sha256 "$(cat "$LAB_BASE/bin/0.43.1/binary.sha256")"
+      - name: Preserve byte accounting and compressed traces, no repositories
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: writes-${{ matrix.size_mib }}mib-${{ matrix.replicate }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/kubo-scratch-*/kubo-lab-*/evidence/**
+            ${{ runner.temp }}/kubo-scratch-*/bin/*/binary.sha256
+            ${{ runner.temp }}/kubo-scratch-*/bin/*/*.sha512
+          if-no-files-found: warn
+          retention-days: 14
