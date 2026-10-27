@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
-"""Run one bounded synthetic command and sample its IO before reaping it.
+"""Measure one synthetic child's IO using waited-child accounting.
 
-The parent runs this helper under strace in a network-disabled namespace.
-Output is drained into hashes in memory, never into repository/storage files.
-Only small text outputs are retained. This helper has no network operations.
+Linux /proc/self/io includes waited-for children. This helper samples itself
+before fork and after wait+pipe drain. It performs no file writes in between;
+its JSON journal is written only after the final sample. The write-byte delta
+therefore excludes the tracer and journal. Read counters include pipe-draining
+observer overhead and must NOT be presented as target-only storage reads.
 """
 import hashlib
 import json
-import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
 import threading
 import time
+
+
+def io_counters():
+    return {k: int(v) for k, v in (line.split(':', 1) for line in Path('/proc/self/io').read_text().splitlines())}
 
 
 def drain(stream, result):
@@ -37,9 +42,12 @@ def main():
     command = sys.argv[2:]
     if not command or destination.exists():
         raise SystemExit('Expected a command and a new report path')
+    before = io_counters()
     process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     started = time.monotonic()
-    result = {'pid': process.pid, 'command': command}
+    result = {'pid': process.pid, 'command': command,
+              'counter_scope': 'helper+self waited child delta; helper makes no writes until after sample',
+              'read_counter_caveat': 'includes observer pipe-draining reads'}
     outputs = {'stdout': {}, 'stderr': {}}
     threads = [threading.Thread(target=drain, args=(getattr(process, key), outputs[key]), daemon=True) for key in outputs]
     for thread in threads:
@@ -49,20 +57,13 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     try:
-        while True:
-            status = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
-            if status is not None:
-                break
-            if time.monotonic() - started > 180:
-                raise TimeoutError('Synthetic command exceeded 180 seconds')
-            time.sleep(0.01)
-        # WNOWAIT preserves /proc/<pid>/io after all target threads have exited.
-        result['proc_io'] = {k: int(v) for k, v in (line.split(':', 1) for line in Path('/proc/%d/io' % process.pid).read_text().splitlines())}
-        result['returncode'] = process.wait(timeout=3)
+        result['returncode'] = process.wait(timeout=180)
         for thread in threads:
             thread.join(timeout=3)
             if thread.is_alive():
                 raise RuntimeError('Output pipe not closed after process exit')
+        after = io_counters()
+        result['proc_io'] = {key: after[key] - before[key] for key in before}
         result.update(outputs)
     except BaseException as exc:
         result['error'] = str(exc)
@@ -72,8 +73,6 @@ def main():
     finally:
         result['elapsed_seconds'] = round(time.monotonic() - started, 6)
         destination.write_text(json.dumps(result, indent=2) + '\n')
-    # The helper succeeds when it measured an exit, including a negative control.
-    # The caller separately checks the target's recorded return code.
 
 
 if __name__ == '__main__':
