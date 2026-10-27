@@ -52,7 +52,6 @@ def cid_text(value):
 
 
 def verified_ok(item):
-    # PinStatus is an embedded Go struct: JSON is flattened and false Ok omitted.
     require(isinstance(item, dict) and isinstance(item.get('Cid'), str), 'Not a per-pin verify record')
     if item.get('Ok') is True:
         return True
@@ -63,8 +62,10 @@ def verified_ok(item):
 
 def make_car(path, count=4096):
     require(64 <= count <= 8192, 'Bounded root count')
-    child = b'one synthetic shared child deliberately removed after pinning\n'
-    child_cid = cid(child, 0x55)
+    # DAG-PB child forces a datastore read during link traversal. A raw CID can
+    # be known to have no links without reading its block and is not this fixture.
+    child = b'\x0a\x02\x08\x00'
+    child_cid = cid(child, 0x70)
     roots, blocks = [], [(child_cid, child)]
     for i in range(count):
         name = ('child-%06d' % i).encode()
@@ -147,6 +148,7 @@ class PinLab:
 
                 def request(path, query=None, abandon=False):
                     require_isolation()
+                    report['last_operation'] = path + (' (abandon after first record)' if abandon else '')
                     connection = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
                     started = time.monotonic()
                     try:
@@ -171,21 +173,36 @@ class PinLab:
                 pins = json.loads(request('pin/ls', {'type': 'recursive'})[0])
                 require(len(pins['Keys']) >= count, 'Expected recursive pin inventory missing')
                 for i in range(8):
+                    report['active_cycle'] = i + 1
                     first, elapsed = request('pin/verify', {'verbose': 'true'}, abandon=True)
                     item = json.loads(first)
                     cycle = {'cycle': i + 1, 'first_record_broken': not verified_ok(item),
                              'disconnect_after_one_record_seconds': elapsed}
+                    report['cycles'].append(cycle)
                     _, cycle['pin_ls_seconds'] = request('pin/ls', {'type': 'recursive'})
                     _, cycle['pin_add_seconds'] = request('pin/add', {'arg': probe, 'recursive': 'false'})
                     _, cycle['pin_rm_seconds'] = request('pin/rm', {'arg': probe, 'recursive': 'false'})
-                    report['cycles'].append(cycle)
                 data, seconds = request('pin/verify', {'verbose': 'true'})
                 rows = [json.loads(line) for line in data.splitlines() if line]
                 broken = sum(not verified_ok(r) for r in rows)
+                report.update(fully_drained_broken_roots=broken, fully_drained_total_roots=len(rows), final_verify_seconds=seconds)
                 require(broken == count, 'Did not verify all deliberately broken roots')
-                report.update(status='responsive', fully_drained_broken_roots=broken, final_verify_seconds=seconds)
+                report['status'] = 'responsive'
             except Exception as exc:
-                report.update(status='unresponsive-or-failed', error=repr(exc))
+                report.update(status='unresponsive-or-failed', error=repr(exc), timed_out=isinstance(exc, TimeoutError))
+                if port and proc.poll() is None:
+                    connection = http.client.HTTPConnection('127.0.0.1', port, timeout=3)
+                    try:
+                        connection.request('GET', '/debug/pprof/goroutine?debug=2')
+                        response = connection.getresponse()
+                        text = response.read(2 * 1024 * 1024).decode('utf-8', 'replace')
+                        report['profile_http_status'] = response.status
+                        report['pinning_stack_excerpts'] = [s[:4000] for s in text.split('\n\n')
+                                                            if 'pinVerify' in s or 'pinning/pinner' in s][:16]
+                    except Exception as diagnostic:
+                        report['profile_error'] = repr(diagnostic)
+                    finally:
+                        connection.close()
             finally:
                 if proc.poll() is None:
                     proc.send_signal(signal.SIGINT)
@@ -239,10 +256,11 @@ def main():
                 'Target pin cancellation/lifecycle acceptance failed')
         require(tree_hashes(seed) == sealed, 'Closed source changed')
         report['seed_unchanged'] = True
-        report['old_bug_reproduced'] = report['old']['status'] != 'responsive'
-        report['interpretation'] = ('Old failure observed; inspect diagnostic before claiming exact root cause'
-                                    if report['old_bug_reproduced'] else
-                                    'Both versions responsive: cancellation smoke test only, original lock bug NOT reproduced')
+        report['old_pin_operation_blocked'] = (report['old'].get('timed_out', False)
+                                              and report['old'].get('last_operation') in ('pin/ls', 'pin/add', 'pin/rm'))
+        report['interpretation'] = ('Old pin operation stalled after stream disconnect; inspect captured stacks'
+                                    if report['old_pin_operation_blocked'] else
+                                    'No old pin-operation timeout established; not an exact lock regression reproduction')
         report['status'] = 'target-smoke-accepted'
     except Exception as exc:
         report.update(status='failed', error=repr(exc))
