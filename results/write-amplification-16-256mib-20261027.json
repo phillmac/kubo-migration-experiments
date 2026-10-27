@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-27",
+  "scope": "synthetic local all-Pebble repository; not production acceptance",
+  "run_id": 40476134520,
+  "tested_commit": "4e2844ebafdfe9c621e56d6a0831faf77293bc8b",
+  "unit_tests": 36,
+  "successful_cases": 6,
+  "denominator": "sum of regular-file lengths in the closed original Kubo repository",
+  "metric": "successful writes to repository files, including overwrites and subsequently deleted files",
+  "migration_phases": ["bridge_first_open", "schema_16_to_18", "target_first_open"],
+  "copies_and_fixture_creation_excluded": true,
+  "all_artifact_sha256_verified": true,
+  "all_per_file_ledgers_independently_recomputed_from_compressed_traces": true,
+  "calibration_bytes": 1704320,
+  "kernel_counter_caution": "Cloned source files were not explicitly fsynced before phases. cancelled_write_bytes can include cancellation of old copied dirty pages; do not subtract it to infer physical migration traffic.",
+  "cases": [
+    {
+      "fixture_mib": 16, "replicate": 1, "repo_bytes": 16800140,
+      "migration_write_bytes": 16812390, "write_bytes_per_repo_byte": 1.0007291605903283,
+      "phase_write_bytes": {"old_reopen_control": 2041, "bridge_first_open": 16797040, "schema_16_to_18": 11713, "target_first_open": 3637, "target_read_acceptance": 21834, "target_reopen_control": 3643, "target_new_1mib": 2102522, "target_new_readback": 3804},
+      "artifact_id": 12720139040, "artifact_sha256": "a3c531d416cdfc693e83e40dda6523a9a7945bbdc05f43d4023782fef6b35783"
+    },
+    {
+      "fixture_mib": 16, "replicate": 2, "repo_bytes": 16800133,
+      "migration_write_bytes": 16812391, "write_bytes_per_repo_byte": 1.0007296370808494,
+      "phase_write_bytes": {"old_reopen_control": 2045, "bridge_first_open": 16797037, "schema_16_to_18": 11713, "target_first_open": 3641, "target_read_acceptance": 21854, "target_reopen_control": 3647, "target_new_1mib": 2102526, "target_new_readback": 3808},
+      "artifact_id": 12721266239, "artifact_sha256": "cdb2921b69f66e0dc5c24ee15024614825e730880e30b5abff1411120b0fa34d"
+    },
+    {
+      "fixture_mib": 64, "replicate": 1, "repo_bytes": 67178631,
+      "migration_write_bytes": 67190314, "write_bytes_per_repo_byte": 1.0001739094683249,
+      "phase_write_bytes": {"old_reopen_control": 4607, "bridge_first_open": 67172398, "schema_16_to_18": 11713, "target_first_open": 6203, "target_read_acceptance": 37218, "target_reopen_control": 6203, "target_new_1mib": 2105092, "target_new_readback": 6366},
+      "artifact_id": 12720198127, "artifact_sha256": "b25d4ca41e034b285e9430d81efc0e5b6ab38e41936f5ef90d48f34f700d37fa"
+    },
+    {
+      "fixture_mib": 64, "replicate": 2, "repo_bytes": 67181700,
+      "migration_write_bytes": 67187849, "write_bytes_per_repo_byte": 1.0000915279011993,
+      "phase_write_bytes": {"old_reopen_control": 5002, "bridge_first_open": 67169537, "schema_16_to_18": 11713, "target_first_open": 6599, "target_read_acceptance": 39594, "target_reopen_control": 6599, "target_new_1mib": 2105488, "target_new_readback": 6762},
+      "artifact_id": 12720014969, "artifact_sha256": "18d94419bdd87d3e9ec9265edcbf001d4eae132f44f8f2d7ed0ce54deebc527d"
+    },
+    {
+      "fixture_mib": 256, "replicate": 1, "repo_bytes": 268662222,
+      "migration_write_bytes": 266587369, "write_bytes_per_repo_byte": 0.9922770943210616,
+      "phase_write_bytes": {"old_reopen_control": 10144, "bridge_first_open": 266563101, "schema_16_to_18": 11713, "target_first_open": 12555, "target_read_acceptance": 75330, "target_reopen_control": 12555, "target_new_1mib": 2111444, "target_new_readback": 12718},
+      "artifact_id": 12721341193, "artifact_sha256": "f78addf5560074b08f55e5af49064f17b7305d8ef8560eb97c7e937c3b9855a7"
+    },
+    {
+      "fixture_mib": 256, "replicate": 2, "repo_bytes": 268656924,
+      "migration_write_bytes": 268683196, "write_bytes_per_repo_byte": 1.000097790146663,
+      "phase_write_bytes": {"old_reopen_control": 9330, "bridge_first_open": 268659741, "schema_16_to_18": 11713, "target_first_open": 11742, "target_read_acceptance": 70452, "target_reopen_control": 11742, "target_new_1mib": 2110631, "target_new_readback": 11905},
+      "artifact_id": 12720956297, "artifact_sha256": "83ace3a6ddee5cc39fe768288fc3088edaa6571518dcdf864415832fd3c8bcfd"
+    }
+  ]
+}
