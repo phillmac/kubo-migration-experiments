@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-27",
+  "scope": "synthetic local all-Pebble repository; not production acceptance",
+  "run_id": 40476805266,
+  "tested_commit": "fe778bf7b8846ce7470c7e3e100b01a581a9a5a1",
+  "branch": "experiment/write-volume-1g-20261027",
+  "measurement_source_identical_to": "4e2844ebafdfe9c621e56d6a0831faf77293bc8b",
+  "unit_tests": 36,
+  "successful_cases": 2,
+  "denominator": "sum of regular-file lengths in the closed original Kubo repository",
+  "all_artifact_sha256_verified": true,
+  "all_per_file_ledgers_independently_recomputed_from_compressed_traces": true,
+  "cases": [
+    {
+      "fixture_mib": 1024, "replicate": 1,
+      "repo_bytes": 1074568552,
+      "migration_write_bytes": 1074621863,
+      "write_bytes_per_repo_byte": 1.0000496115393482,
+      "migration_plus_read_acceptance_ratio": 1.0002233352163092,
+      "surviving_changed_file_bytes_summed_across_migration_phases": 1074618998,
+      "migration_net_repo_growth_bytes": 22301,
+      "phase_write_bytes": {"old_reopen_control": 28213, "bridge_first_open": 1074579037, "schema_16_to_18": 11713, "target_first_open": 31113, "target_read_acceptance": 186678, "target_reopen_control": 31113, "target_new_1mib": 2130002, "target_new_readback": 31276},
+      "artifact_id": 12720782502,
+      "artifact_sha256": "d31bf30cacf868697c0941ad59607e7f9e83a3866c02d2309d9a4904ee0ad11b"
+    },
+    {
+      "fixture_mib": 1024, "replicate": 2,
+      "repo_bytes": 1074585995,
+      "migration_write_bytes": 1094822145,
+      "write_bytes_per_repo_byte": 1.0188315780162387,
+      "migration_plus_read_acceptance_ratio": 1.0190080403941986,
+      "surviving_changed_file_bytes_summed_across_migration_phases": 1073574747,
+      "migration_net_repo_growth_bytes": 10320,
+      "phase_write_bytes": {"old_reopen_control": 6064613, "bridge_first_open": 1094778828, "schema_16_to_18": 11713, "target_first_open": 31604, "target_read_acceptance": 189624, "target_reopen_control": 31604, "target_new_1mib": 2130493, "target_new_readback": 31767},
+      "written_then_unlinked_bridge_sst_bytes": {"pebbleds/003494.sst": 12851494, "pebbleds/003499.sst": 8393039},
+      "written_then_unlinked_bridge_sst_total_bytes": 21244533,
+      "successful_unlinks_independently_verified_in_raw_traces": true,
+      "artifact_id": 12721347329,
+      "artifact_sha256": "027f940d44532216604bfac5c9edfe2f5c1e2902fd3346df77b3862755c1c5d9"
+    }
+  ],
+  "caveats": [
+    "Gross migration-phase writes include ordinary startup compaction; independent old-reopen controls are not subtracted.",
+    "Source-copy creation and rollback-copy writes are excluded.",
+    "These are file-write syscall bytes, not hardware device writes or Wasabi transfers.",
+    "Cloned source files were not explicitly fsynced before phases; kernel cancelled_write_bytes can include deletion of old copied dirty pages and must not be netted into physical traffic.",
+    "1.019 is the highest observed migration ratio, not a guaranteed production upper bound."
+  ]
+}
