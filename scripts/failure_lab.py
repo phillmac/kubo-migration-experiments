@@ -31,6 +31,11 @@ def require(condition, message):
         raise Refusal(message)
 
 
+def missing_sst_error(errors, victim):
+    return (Path(victim).stem in errors and 'failed to open pebble database' in errors.lower()
+            and ('file does not exist' in errors.lower() or 'no such file' in errors.lower()))
+
+
 def file_sizes(repo):
     out = {}
     for p in Path(repo).rglob('*'):
@@ -39,7 +44,7 @@ def file_sizes(repo):
                 s = p.stat()
                 out[str(p.relative_to(repo))] = {'size': s.st_size, 'allocated': s.st_blocks * 512}
         except FileNotFoundError:
-            pass  # Concurrent compaction; samples are explicitly lower bounds.
+            pass
     return out
 
 
@@ -90,11 +95,11 @@ class Experiment:
         cmd = [str(binary), '--offline', *args]
         start_files = file_sizes(repo)
         peak = sum(v['allocated'] for v in start_files.values())
+        peak_files = len(start_files)
         trigger = None
         timed_out = False
         if kill_during_sst:
             require(shutil.which('strace'), 'strace required for a slowed interruption window')
-            # Delay write entry only to make the crash point observable. Not a throughput test.
             cmd = ['strace', '-f', '-qq', '-s', '0', '-e', 'trace=write,pwrite64,writev',
                    '-e', 'inject=write:delay_enter=1ms', '-o', '/dev/null', *cmd]
         started = time.monotonic()
@@ -105,10 +110,10 @@ class Experiment:
                 while proc.poll() is None:
                     files = file_sizes(repo)
                     peak = max(peak, sum(v['allocated'] for v in files.values()))
+                    peak_files = max(peak_files, len(files))
                     candidates = {k: v['size'] for k, v in files.items()
                                   if k.endswith('.sst') and k not in start_files and v['size'] >= MIB}
                     if kill_during_sst and candidates and trigger is None:
-                        # Stop all traced descendants before recording the observed interrupted state.
                         os.killpg(proc.pid, signal.SIGSTOP)
                         trigger = {'new_sst_sizes': candidates,
                                    'format_markers': sorted(str(p.relative_to(repo)) for p in Path(repo).rglob('*format-version*'))}
@@ -132,12 +137,16 @@ class Experiment:
                 if n <= 32768:
                     preview += chunk
             err.seek(0)
-            errors = err.read().decode('utf-8', 'replace')
+            error_bytes = err.read()
+            errors = error_bytes.decode('utf-8', 'replace')
         event = {'repo': Path(repo).name, 'args': list(args), 'returncode': code,
                  'timeout': timed_out, 'elapsed_seconds': round(time.monotonic() - started, 5),
                  'stdout_bytes': n, 'stdout_sha256': h.hexdigest(),
                  'stdout': preview.decode('utf-8', 'replace') if n <= 32768 else None,
-                 'stderr': errors[-16000:], 'sampled_peak_allocated_bytes': peak,
+                 'stderr': errors[-16000:], 'stderr_bytes': len(error_bytes),
+                 'stderr_sha256': hashlib.sha256(error_bytes).hexdigest(),
+                 'enospc_messages': errors.lower().count('no space left on device'),
+                 'sampled_peak_allocated_bytes': peak, 'sampled_peak_file_count': peak_files,
                  'sampling_note': '3ms samples are a lower bound, not exact peak',
                  'interruption': trigger}
         self.events.append(event)
@@ -217,6 +226,7 @@ def main():
             victim.unlink()
         fault = x.run(bins['bridge'], copy, 'pin', 'ls', '--quiet', timeout=20,
                       kill_during_sst=args.case == 'sigkill', checked=False, alternate_parent=parent)
+        report['fault'] = fault
         if args.case == 'sigkill':
             require(fault['interruption'] is not None and fault['returncode'] == -signal.SIGKILL,
                     'Did not kill an active process after observing a new SST')
@@ -225,11 +235,10 @@ def main():
             require(fault['returncode'] != 0 or fault['timeout'], 'Full filesystem did not interrupt bridge')
         else:
             require(fault['returncode'] != 0 and not fault['timeout'], 'Missing SST did not fail promptly')
-            require('sst' in fault['stderr'].lower(), 'Failure not identified as SST related')
+            require(missing_sst_error(fault['stderr'], victim), 'Failure did not identify the removed SST file number')
         report['fault_demonstrated'] = True
-        report['fault'] = fault
         if filler is not None:
-            filler.unlink()  # Remove only our explicitly created pressure file.
+            filler.unlink()
             report['free_bytes_after_pressure_release'] = shutil.disk_usage(parent).free
         if args.case != 'missing-sst':
             resume = x.run(bins['bridge'], copy, 'pin', 'ls', '--quiet', timeout=90,
