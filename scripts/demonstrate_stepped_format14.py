@@ -21,8 +21,8 @@ from test_standalone_pebble_format13 import fingerprint_with_pinned_format
 
 MIB=1024**2
 IO_OPS="read,readv,pread64,write,writev,pwrite64,fsync,fdatasync,openat,unlinkat,renameat,renameat2,close"
-RE = re.compile(r"^\\d+(?:\\.\\d+)?\\s+(read|readv|pread64|write|writev|pwrite64)\\(\\d+<([^>]+)>.*\\)\\s+=\\s+(\\d+)")
-RE_TID = re.compile(r"^\\[pid \\d+\\] ")
+RE = re.compile(r"^(read|readv|pread64|write|writev|pwrite64)\(\d+<([^>]+)>.*\)\s+=\s+(\d+)")
+RE_TID = re.compile(r"^\[pid \d+\] ")
 def trace_byte_totals(prefix,repo):
     totals={}
     files={}
