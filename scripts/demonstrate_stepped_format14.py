@@ -134,7 +134,9 @@ def main():
         expected_sha=prepared["keys_sha256_after"]
         expected_keys=prepared["keys_after"]
         prior=prepared["marked_after"]
-        for group in range(args.groups):
+        # The Kubo fixture itself can contribute marked SSTs in addition to
+        # the demo groups. Budget based on actual marked-file count, not groups.
+        for group in range(prepared["marked_after"] + 2):
             if prior==0:break
             step=demo(working,"step",group=group,measure=True)
             if step["marked_before"]!=prior or step["marked_after"]>=prior:
