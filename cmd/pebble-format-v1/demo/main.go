@@ -163,18 +163,16 @@ func main(){
    if err:=db.RatchetFormatMajorVersion(13);err!=nil{return err}
    if db.Metrics().Compact.MarkedFiles==0{return errors.New("demonstration lacks marked legacy lower-level SSTs")}
   case "step":
-   if beforeFormat!=13{return errors.New("manual step requires format 13")}
+   if beforeFormat!=13{return errors.New("single-marked-rewrite requires format 13")}
    if beforeMarked==0{return errors.New("no marked SSTs to rewrite")}
-   start,end:=groupRange(*group)
-   planned:=uint64(0); overlaps:=make([]table,0)
-   for _,t:=range beforeTables {
-    if t.Last>=string(start) && t.First<string(end){overlaps=append(overlaps,t);planned+=t.Size}
+   plan,err:=db.DemoRewriteOneMarkedFile(*plannedLimit)
+   output["preflight_overlap_bytes"]=plan.InputBytes
+   output["preflight_overlap_ssts"]=plan.InputFiles
+   output["picked_input_level"]=plan.InputLevel
+   if err!=nil{return err}
+   if db.Metrics().Compact.MarkedFiles>=beforeMarked {
+    return errors.New("single marked rewrite did not reduce marked-file count")
    }
-   if planned==0||planned>*plannedLimit {return fmt.Errorf("manual compaction rejected: planned overlap %d > budget %d",planned,*plannedLimit)}
-   output["preflight_overlap_bytes"]=planned;output["preflight_overlap_ssts"]=overlaps
-   output["range_start"]=string(start);output["range_end"]=string(end)
-   if err:=db.Compact(start,end,false);err!=nil{return err}
-   if db.Metrics().Compact.MarkedFiles>=beforeMarked{return errors.New("manual compaction failed to reduce marked files")}
   case "finish":
    if beforeFormat!=13{return errors.New("finish requires format 13")}
    if beforeMarked!=0{return fmt.Errorf("refuse ratchet14 with %d marked files",beforeMarked)}
