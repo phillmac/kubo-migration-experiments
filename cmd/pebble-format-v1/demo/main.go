@@ -102,7 +102,7 @@ func main(){
  if *groups<2||*groups>6||*keys<=0||*keys>4096||*bytesPerValue<128||*bytesPerValue>2048 {
   fmt.Fprintln(os.Stderr,"fixture size guard refused");os.Exit(2)
  }
- if *group<0||*group>=*groups {fmt.Fprintln(os.Stderr,"invalid group");os.Exit(2)}
+ if *group<0 || (*action!="step" && *group>=*groups) || (*action=="step" && *group>=*groups+8) {fmt.Fprintln(os.Stderr,"invalid phase ordinal");os.Exit(2)}
  if *action!="seed"&&*action!="prepare"&&*action!="inspect"&&*action!="step"&&*action!="finish" {
   fmt.Fprintln(os.Stderr,"unknown action");os.Exit(2)
  }
