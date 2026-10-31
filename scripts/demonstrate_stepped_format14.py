@@ -98,6 +98,7 @@ def main():
             "format_before":output["format_before"],
             "format_after":output["format_after"],
             "sst_diff":output["sst_diff"],
+            "compactions":output.get("compactions"),
             "measured_SST_IO":output.get("measured_SST_IO")},sort_keys=True),flush=True)
         return output
     try:
@@ -133,6 +134,27 @@ def main():
             raise Refusal("insufficient marked files for a stepped rewrite")
         expected_sha=prepared["keys_sha256_after"]
         expected_keys=prepared["keys_after"]
+        # Exercise the actual byte-budget gate, not merely the CLI's parameter
+        # validation. A 1 MiB budget is smaller than our marked 2–3 MiB units.
+        negative_cmd=[str(binary["demo"]),"--lab-root",str(lab.root),
+              "--db",str(working/"pebbleds"),"--action","step",
+              "--groups",str(args.groups),"--group","0",
+              "--max-overlap-bytes",str(MIB)]
+        rejected=subprocess.run(negative_cmd,capture_output=True,text=True,timeout=30)
+        refusal=json.loads(rejected.stdout) if rejected.stdout.strip() else {}
+        if (rejected.returncode==0 or
+            "exceeds maximum" not in refusal.get("error","") or
+            refusal.get("sst_diff",{}).get("created_count")!=0 or
+            refusal.get("sst_diff",{}).get("retired_count")!=0):
+            raise Refusal("over-budget rewrite was not rejected without SST changes")
+        checked=demo(working,"inspect")
+        if (checked["marked_after"]!=prepared["marked_after"] or
+            checked["keys_sha256_after"]!=expected_sha):
+            raise Refusal("over-budget refusal modified durable state")
+        report["backpressure_refusal"]={"budget_bytes":MIB,
+            "chosen_input_bytes":refusal["preflight_overlap_bytes"],
+            "no_sst_changes":True,"marked_count_preserved":True}
+        print("BUDGET_REFUSAL_VERIFIED",json.dumps(report["backpressure_refusal"]),flush=True)
         prior=prepared["marked_after"]
         # The Kubo fixture itself can contribute marked SSTs in addition to
         # the demo groups. Budget based on actual marked-file count, not groups.
@@ -145,17 +167,25 @@ def main():
                 raise Refusal("manual compaction did not retire and create SSTs")
             if step["sst_diff"]["created_bytes"]>64*MIB:
                 raise Refusal("synthetic step output exceeded bound")
-            if step["keys_sha256_after"]!=expected_sha or step["keys_after"]!=expected_keys:
-                raise Refusal("synthetic payload altered")
+            ends=[e for e in (step.get("compactions") or []) if e.get("type")=="end"]
+            if len(ends)!=1 or ends[0].get("error"):
+                raise Refusal("expected exactly one successful Pebble rewrite compaction event")
+            input_ssts={x["sst"] for x in ends[0]["input"]}
+            output_ssts={x["sst"] for x in ends[0]["output"]}
+            retired={x["Number"] for x in step["sst_diff"]["retired"]}
+            created={x["Number"] for x in step["sst_diff"]["created"]}
+            if input_ssts!=retired or output_ssts!=created:
+                raise Refusal("Pebble compaction event disagrees with durable SST inventory")
             record={k:step[k] for k in ("group","marked_before","marked_after",
-                        "sst_diff","preflight_overlap_bytes","measured_SST_IO",
-                        "elapsed_seconds")}
+                        "sst_diff","compactions","preflight_overlap_bytes",
+                        "measured_SST_IO","elapsed_seconds")}
             report["steps"].append(record)
             # A separate fresh process must re-open the closed database and
             # observe exactly the same durable marked count and key checksum.
             reopened=demo(working,"inspect")
             if (reopened["marked_after"]!=step["marked_after"] or
-                reopened["keys_sha256_after"]!=expected_sha):
+                reopened["keys_sha256_after"]!=expected_sha or
+                reopened["keys_after"]!=expected_keys):
                 raise Refusal("closed Pebble checkpoint lost its progress")
             prior=step["marked_after"]
         if len(report["steps"])<2:
