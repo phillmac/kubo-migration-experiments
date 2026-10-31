@@ -8,10 +8,36 @@ with the format explicitly pinned to 13. Does not claim production acceptance.
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 
 from kubo_migration_lab import Lab, Refusal, migrate_schema, require_isolation, verify_binary
+
+def strip_expected_pebble_notice(payload):
+    # Kubo 0.43.1 emits an advisory on stdout when deliberately pinned
+    # to an older supported format. Never silently drop arbitrary bytes.
+    prefix=('⚠️ A newer pebble db format is available.\\n'
+            '  To upgrade, set the following in the pebble datastore config:\\n').encode()
+    if payload.startswith(prefix):
+        remainder=payload[len(prefix):]
+        line,separator,data=remainder.partition(b'\\n')
+        if not separator or not re.fullmatch(rb'    "formatMajorVersion": [0-9]+',line):
+            raise Refusal('Unexpected Pebble format advisory on stdout')
+        return data
+    return payload
+
+def fingerprint_with_pinned_format(lab,binary,repo,root,raw,payload,raw_payload):
+    def get(*args):
+        return strip_expected_pebble_notice(lab.run(binary,repo,*args)[1])
+    if get('cat',root)!=payload or get('block','get',raw)!=raw_payload:
+        raise Refusal('Byte payload differed after independent Pebble format migration')
+    return {'recursive_pins':sorted(get('pin','ls','--type=recursive','--quiet').decode().splitlines()),
+            'direct_pins':sorted(get('pin','ls','--type=direct','--quiet').decode().splitlines()),
+            'mfs_root':get('files','stat','--hash','/').decode().strip(),
+            'file_root':root,'raw_cid':raw,
+            'payload_sha256':hashlib.sha256(payload).hexdigest(),
+            'raw_sha256':hashlib.sha256(raw_payload).hexdigest()}
 
 def main():
     p=argparse.ArgumentParser()
@@ -35,7 +61,7 @@ def main():
             version=lab.run(binaries[name],repo,'version','--number')[1].decode().strip()
             if version!=expected:raise Refusal('Wrong binary version '+name+': '+version)
         lab.run(binaries['old'],repo,'init','--profile=pebbleds')
-        data=hashlib.shake_256(b'standalone-format13-synthetic').digest(8*1024*1024)
+        data=hashlib.shake_256(b'standalone-format13-synthetic').digest(4*1024*1024)
         file=lab.root/'sample.bin'
         file.write_bytes(data)
         root=lab.run(binaries['old'],repo,'add','-Q','--cid-version=0','--raw-leaves=false',str(file))[1].decode().strip()
@@ -72,7 +98,7 @@ def main():
         conf.write_text(json.dumps(cfg,indent=2)+'\n')
         report['format_pinned_in_new_kubo_config']=13
         report['schema_migration']=migrate_schema(lab,binaries['target'],clone)
-        actual=lab.fingerprint(binaries['target'],clone,root,raw,data,raw_data)
+        actual=fingerprint_with_pinned_format(lab,binaries['target'],clone,root,raw,data,raw_data)
         if actual!=baseline:raise Refusal('Logical data changed across independent Pebble format migration')
         report['target_kubo_opens']=True
         report['target_repo_version']=(clone/'version').read_text().strip()
