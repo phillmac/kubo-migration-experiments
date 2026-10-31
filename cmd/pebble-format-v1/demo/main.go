@@ -134,8 +134,15 @@ func main(){
  beforeMarked:=db.Metrics().Compact.MarkedFiles
  beforeTables,err:=tables(db)
  if err!=nil{_ = db.Close();fmt.Fprintln(os.Stderr,"tables:",err);os.Exit(1)}
- beforeCount,beforeHash,err:=scan(db)
- if err!=nil{_ = db.Close();fmt.Fprintln(os.Stderr,"scan:",err);os.Exit(1)}
+ // The mutation-only step is traced independently. Full integrity scans
+ // run in a fresh process immediately after the clean close. Including them
+ // here would overcount SST reads during a single rewrite.
+ beforeCount,beforeHash:=0,"deferred-to-closed-reopen"
+ if *action!="step" {
+  var err error
+  beforeCount,beforeHash,err=scan(db)
+  if err!=nil{_ = db.Close();fmt.Fprintln(os.Stderr,"scan:",err);os.Exit(1)}
+ }
  output:=result{"action":*action,"group":*group,"format_before":beforeFormat.String(),
   "marked_before":beforeMarked,"sst_count_before":len(beforeTables),"keys_before":beforeCount,
   "keys_sha256_before":beforeHash,"disabled_auto_compactions":true,"max_concurrency":1}
@@ -185,7 +192,9 @@ func main(){
  afterFormat:=db.FormatMajorVersion()
  afterMarked:=db.Metrics().Compact.MarkedFiles
  afterTables,tableErr:=tables(db)
- afterCount,afterHash,scanErr:=scan(db)
+ afterCount,afterHash:=0,"deferred-to-closed-reopen"
+ var scanErr error
+ if *action!="step" {afterCount,afterHash,scanErr=scan(db)}
  closeErr:=db.Close()
  if doErr==nil{doErr=tableErr}
  if doErr==nil{doErr=scanErr}
