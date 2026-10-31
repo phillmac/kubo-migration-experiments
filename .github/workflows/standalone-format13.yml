@@ -1,0 +1,98 @@
+name: Standalone Pebble format-13 bridge compatibility
+
+on:
+  push:
+    branches:
+      - experiment/standalone-pebble-format13-20261101
+  pull_request:
+    paths:
+      - 'cmd/pebble-format-v1/**'
+      - 'scripts/test_standalone_pebble_format13.py'
+      - '.github/workflows/standalone-format13.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: standalone-pebble-13-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  isolated-standalone:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+      - name: Unit test current lab guardrails
+        run: python3 -m unittest discover -s tests -v
+      - name: Compile pinned standalone Pebble v1.1.3 migrator
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$RUNNER_TEMP/kubo-scratch-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -m 700 "$base"
+          echo "LAB_BASE=$base" >> "$GITHUB_ENV"
+          cd cmd/pebble-format-v1
+          go mod tidy
+          go mod verify
+          gofmt -w main.go
+          go build -trimpath -o "$base/pebble-format-v1" .
+          sha256sum "$base/pebble-format-v1" | tee "$base/standalone.sha256"
+      - name: Verify official Kubo 0.31 and 0.43 release binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          for version in 0.31.0 0.43.1; do
+            dir="$LAB_BASE/bin/$version"
+            mkdir -p "$dir"
+            file="kubo_v${version}_linux-amd64.tar.gz"
+            origin="https://github.com/ipfs/kubo/releases/download/v${version}"
+            curl --fail --location --silent --show-error --connect-timeout 15 --max-time 180 --output "$dir/$file" "$origin/$file"
+            curl --fail --location --silent --show-error --connect-timeout 15 --max-time 30 --output "$dir/$file.sha512" "$origin/$file.sha512"
+            python3 - "$dir/$file" <<'PY'
+          import hashlib,pathlib,re,sys,tarfile
+          p=pathlib.Path(sys.argv[1])
+          wanted=pathlib.Path(str(p)+'.sha512').read_text().split()[0]
+          if not re.fullmatch('[0-9a-fA-F]{128}',wanted):raise SystemExit('Bad checksum manifest')
+          if hashlib.sha512(p.read_bytes()).hexdigest()!=wanted.lower():raise SystemExit('SHA512 mismatch')
+          with tarfile.open(p,'r:gz') as archive:
+              member=archive.getmember('kubo/ipfs')
+              if not member.isfile() or member.size>512*1024*1024:raise SystemExit('Bad archive member')
+              exe=p.parent/'ipfs'
+              exe.write_bytes(archive.extractfile(member).read())
+              exe.chmod(0o500)
+          (p.parent/'binary.sha256').write_text(hashlib.sha256(exe.read_bytes()).hexdigest()+'\n')
+          print('PINNED_KUBO',p.name)
+          PY
+          done
+      - name: Run standalone format-13 then target Kubo offline CLI in network namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=10s 780s \
+            sudo unshare --net --setgid="$(id -g)" --setuid="$(id -u)" -- \
+            env -i PATH=/usr/bin:/bin HOME="$LAB_BASE" \
+            /usr/bin/python3 "$GITHUB_WORKSPACE/scripts/test_standalone_pebble_format13.py" \
+              --base "$LAB_BASE" \
+              --old "$LAB_BASE/bin/0.31.0/ipfs" --old-sha256 "$(cat "$LAB_BASE/bin/0.31.0/binary.sha256")" \
+              --target "$LAB_BASE/bin/0.43.1/ipfs" --target-sha256 "$(cat "$LAB_BASE/bin/0.43.1/binary.sha256")" \
+              --standalone "$LAB_BASE/pebble-format-v1" --standalone-sha256 "$(cut -d' ' -f1 "$LAB_BASE/standalone.sha256")"
+      - name: Retain synthetic reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-format13-synthetic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/kubo-scratch-*/kubo-lab-*/evidence/*.json
+            ${{ runner.temp }}/kubo-scratch-*/standalone.sha256
+            ${{ runner.temp }}/kubo-scratch-*/bin/*/binary.sha256
+          if-no-files-found: warn
+          retention-days: 14
