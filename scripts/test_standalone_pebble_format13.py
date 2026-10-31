@@ -61,8 +61,12 @@ def main():
         conf=clone/'config'
         cfg=json.loads(conf.read_text())
         spec=cfg['Datastore']['Spec']
-        if spec['type']!='pebbleds' or spec['path']!='pebbleds':
-            raise Refusal('Unexpected datastore layout')
+        # Kubo 0.31's pebbleds profile wraps the real store in a
+        # measurement decorator. Apply the format pin to the child only.
+        if spec.get('type')=='measure' and spec.get('prefix')=='pebble.datastore':
+            spec=spec.get('child',{})
+        if spec.get('type')!='pebbleds' or spec.get('path')!='pebbleds':
+            raise Refusal('Unexpected datastore layout: '+str(spec.get('type')))
         if 'formatMajorVersion' in spec:raise Refusal('Synthetic baseline unexpectedly pinned a format')
         spec['formatMajorVersion']=13
         conf.write_text(json.dumps(cfg,indent=2)+'\n')
