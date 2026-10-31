@@ -50,7 +50,19 @@ jobs:
           cd cmd/pebble-format-v1
           go mod tidy
           go mod verify
-          gofmt -w demo/main.go
+          # A disposable exact-version Pebble copy is needed because v1's
+          # marked-file picker is unexported. This is test-only, not a
+          # replacement in a running Kubo installation.
+          go mod download github.com/cockroachdb/pebble@v1.1.3
+          vendor_root="$(go env GOPATH)/pkg/mod/github.com/cockroachdb/pebble@v1.1.3"
+          test -f "$vendor_root/format_major_version.go"
+          copied="$base/pebble-v1.1.3-demo"
+          cp -a "$vendor_root" "$copied"
+          chmod -R u+w "$copied"
+          cp patches/demo_single_rewrite.go "$copied/demo_single_rewrite.go"
+          gofmt -w demo/main.go "$copied/demo_single_rewrite.go"
+          go mod edit -replace "github.com/cockroachdb/pebble=$copied"
+          go mod tidy
           go build -trimpath -o "$base/pebble-demo" ./demo
           sha256sum "$base/pebble-demo" | tee "$base/demo.sha256"
       - name: Verify pinned official Kubo release binaries
