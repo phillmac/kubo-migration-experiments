@@ -17,11 +17,11 @@ from kubo_migration_lab import Lab, Refusal, migrate_schema, require_isolation, 
 def strip_expected_pebble_notice(payload):
     # Kubo 0.43.1 emits an advisory on stdout when deliberately pinned
     # to an older supported format. Never silently drop arbitrary bytes.
-    prefix=('⚠️ A newer pebble db format is available.\\n'
-            '  To upgrade, set the following in the pebble datastore config:\\n').encode()
+    prefix=('⚠️ A newer pebble db format is available.\n'
+            '  To upgrade, set the following in the pebble datastore config:\n').encode()
     if payload.startswith(prefix):
         remainder=payload[len(prefix):]
-        line,separator,data=remainder.partition(b'\\n')
+        line,separator,data=remainder.partition(b'\n')
         if not separator or not re.fullmatch(rb'    "formatMajorVersion": [0-9]+',line):
             raise Refusal('Unexpected Pebble format advisory on stdout')
         return data
