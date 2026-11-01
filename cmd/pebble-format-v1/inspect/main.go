@@ -3,6 +3,7 @@
 package main
 
 import (
+ "bytes"
  "encoding/json"
  "errors"
  "flag"
@@ -24,6 +25,14 @@ type SST struct {
  Number string `json:"number"`
  Bytes uint64 `json:"bytes"`
 }
+type AtomicUnits struct {
+ UnitCount int `json:"unit_count"`
+ MultiFileUnits int `json:"multi_file_units"`
+ MaxFilesPerUnit int `json:"max_files_per_unit"`
+ MaxUnitBytes uint64 `json:"max_unit_bytes"`
+ UnitsAbove128MiB int `json:"units_above_128mib"`
+ UnitsAbove256MiB int `json:"units_above_256mib"`
+}
 type Level struct {
  Level int `json:"level"`
  Count int `json:"count"`
@@ -32,6 +41,7 @@ type Level struct {
  MaxSize uint64 `json:"max_sst_bytes"`
  VirtualFiles int `json:"virtual_files"`
  Largest []SST `json:"largest_files"`
+ Atomic AtomicUnits `json:"atomic_units"`
 }
 type Report struct {
  Scope string `json:"scope"`
@@ -40,6 +50,7 @@ type Report struct {
  MarkedFiles int `json:"marked_files"`
  SSTCount int `json:"sst_count"`
  SSTBytes uint64 `json:"sst_bytes"`
+ EstimatedMaxAtomicInputBytes uint64 `json:"estimated_max_atomic_input_bytes"`
  Levels []Level `json:"levels"`
  ElapsedSeconds float64 `json:"elapsed_seconds"`
 }
@@ -108,6 +119,34 @@ func main() {
    }
    if !inserted && len(l.Largest)<5 {l.Largest=append(l.Largest,s)}
    if len(l.Largest)>5 {l.Largest=l.Largest[:5]}
+  }
+  // Mirrors the v1.1.3 expandToAtomicUnit user-key boundary rule for
+  // non-overlapping L1-L6. This is a preflight estimate, not Pebble's
+  // authoritative compaction picker or a durable marked-file count.
+  var unitBytes uint64
+  var unitCount int
+  closeUnit:=func() {
+   if unitCount==0{return}
+   l.Atomic.UnitCount++
+   if unitCount>1{l.Atomic.MultiFileUnits++}
+   if unitCount>l.Atomic.MaxFilesPerUnit{l.Atomic.MaxFilesPerUnit=unitCount}
+   if unitBytes>l.Atomic.MaxUnitBytes{l.Atomic.MaxUnitBytes=unitBytes}
+   if unitBytes>128*1024*1024{l.Atomic.UnitsAbove128MiB++}
+   if unitBytes>256*1024*1024{l.Atomic.UnitsAbove256MiB++}
+  }
+  for j,entry:=range level {
+   joined:=false
+   if i>0 && j>0 {
+    prev:=level[j-1]
+    joined= !prev.Largest.IsExclusiveSentinel() && bytes.Equal(prev.Largest.UserKey,entry.Smallest.UserKey)
+   }
+   if !joined{closeUnit();unitBytes=0;unitCount=0}
+   unitBytes+=entry.Size
+   unitCount++
+  }
+  closeUnit()
+  if l.Atomic.MaxUnitBytes>result.EstimatedMaxAtomicInputBytes{
+   result.EstimatedMaxAtomicInputBytes=l.Atomic.MaxUnitBytes
   }
   result.Levels=append(result.Levels,l)
   result.SSTCount+=l.Count
