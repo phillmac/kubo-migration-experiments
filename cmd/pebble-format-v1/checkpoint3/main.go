@@ -35,12 +35,28 @@ type Result struct {
 
 func ensure(path,action string) error {
  if !filepath.IsAbs(path) || filepath.Clean(path)!=path {return errors.New("absolute normalized path required")}
- if !strings.HasPrefix(path,root+"/") || filepath.Base(path)!="pebbleds" {return errors.New("synthetic scratch root only")}
- parent:=filepath.Dir(path)
- if filepath.Dir(parent)!=root || filepath.Base(parent)=="rhea" {return errors.New("immediate synthetic scratch child only")}
- for _,p:=range []string{root,parent} {
-  fi,err:=os.Lstat(p);if err!=nil{return err}
-  if !fi.IsDir() || fi.Mode()&os.ModeSymlink!=0{return fmt.Errorf("symlink or non-directory: %s",p)}
+ const live = "/mnt/rhea-pebble-format3-live-20261102"
+ if path==live+"/pebbleds" {
+  b,err:=os.ReadFile("/proc/self/mountinfo");if err!=nil{return err}
+  valid:=false
+  for _,line:=range strings.Split(string(b),"\n") {
+   parts:=strings.SplitN(line," - ",2)
+   if len(parts)!=2{continue}
+   left:=strings.Fields(parts[0]);right:=strings.Fields(parts[1])
+   if len(left)>4 && len(right)>1 && left[4]==live &&
+    right[0]=="fuse.rclone" &&
+    strings.Contains(right[1],"rhea_pebble_lab") &&
+    strings.Contains(right[1],"__pebble_format3_live_20261102") {valid=true}
+  }
+  if !valid {return errors.New("specific lab-only FUSE mount identity not verified")}
+ } else {
+  if !strings.HasPrefix(path,root+"/") || filepath.Base(path)!="pebbleds" {return errors.New("synthetic scratch root only")}
+  parent:=filepath.Dir(path)
+  if filepath.Dir(parent)!=root || filepath.Base(parent)=="rhea" {return errors.New("immediate synthetic scratch child only")}
+  for _,p:=range []string{root,parent} {
+   fi,err:=os.Lstat(p);if err!=nil{return err}
+   if !fi.IsDir() || fi.Mode()&os.ModeSymlink!=0{return fmt.Errorf("symlink or non-directory: %s",p)}
+  }
  }
  if action=="seed"{
   _,err:=os.Lstat(path)
