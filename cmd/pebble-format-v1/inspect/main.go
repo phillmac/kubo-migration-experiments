@@ -37,7 +37,7 @@ type Report struct {
  Scope string `json:"scope"`
  ReadOnly bool `json:"read_only"`
  FormatMajorVersion string `json:"format_major_version"`
- MarkedFiles int64 `json:"marked_files"`
+ MarkedFiles int `json:"marked_files"`
  SSTCount int `json:"sst_count"`
  SSTBytes uint64 `json:"sst_bytes"`
  Levels []Level `json:"levels"`
