@@ -42,7 +42,13 @@ The only permitted credential source is the root-owned, mode-0600 file:
 ```
 
 It must identify only the approved laboratory remote and IAM user
-`rhea-pebble-lab-20261101`. Host root credentials, environment credential fallback,
+`rhea-pebble-lab-20261101`. The S3 bucket is signed in `ca-central-1`,
+while the global Wasabi STS endpoint is separately signed in `us-east-1`;
+using the S3 region for STS returns `AuthorizationHeaderMalformed`.
+STS identity acceptance allows only the exact lab username at IAM's root path
+or the explicitly provisioned `/experiments/` path; other paths and root
+identities are rejected.
+Host root credentials, environment credential fallback,
 instance credentials, alternate profiles, and root IAM credentials are not valid
 substitutes. Keep credentials out of command arguments, documentation, and logs.
 The wrapper does not change global rclone or Codex configuration.

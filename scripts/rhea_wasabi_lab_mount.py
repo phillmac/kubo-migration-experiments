@@ -34,6 +34,7 @@ IDENTITY = "rhea-pebble-lab-20261101"
 REMOTE = "rhea_pebble_lab"
 S3_ENDPOINT = "https://s3.ca-central-1.wasabisys.com"
 STS_ENDPOINT = "https://sts.wasabisys.com"
+STS_SIGNING_REGION = "us-east-1"
 CONFIG = Path("/root/.config/rclone/rhea-pebble-lab-20261101.conf")
 RCLONE = Path(
     "/root/.local/share/rhea-wasabi-lab-admin-20261101/rclone-v1.68.1"
@@ -211,7 +212,11 @@ def parse_config(text: str) -> tuple[str, str]:
 def validate_identity(response: dict) -> None:
     account = response.get("Account")
     require(isinstance(account, str) and bool(re.fullmatch(r"\d{12}", account)), "invalid STS account")
-    require(response.get("Arn") == f"arn:aws:iam::{account}:user/{IDENTITY}", "STS identity is not the lab IAM user")
+    permitted = {
+        f"arn:aws:iam::{account}:user/{IDENTITY}",
+        f"arn:aws:iam::{account}:user/experiments/{IDENTITY}",
+    }
+    require(response.get("Arn") in permitted, "STS identity is not the lab IAM user")
     user_id = response.get("UserId")
     require(isinstance(user_id, str) and bool(user_id) and user_id != account and ":" not in user_id, "root or session identity forbidden")
 
@@ -533,7 +538,8 @@ class RealHost:
         )
         return (
             session.client("s3", endpoint_url=S3_ENDPOINT, config=settings),
-            session.client("sts", endpoint_url=STS_ENDPOINT, config=settings.merge(Config(signature_version="v4"))),
+            session.client("sts", endpoint_url=STS_ENDPOINT, region_name=STS_SIGNING_REGION,
+                           config=settings.merge(Config(signature_version="v4"))),
         )
 
     def no_hidden_wasabi_kubo(self) -> None:

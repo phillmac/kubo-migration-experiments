@@ -142,6 +142,9 @@ class IdentityTests(unittest.TestCase):
     def test_exact_lab_non_root_identity_allowed(self):
         m.validate_identity(self.identity())
 
+    def test_explicit_experiments_path_lab_user_allowed(self):
+        m.validate_identity(self.identity("user/experiments/rhea-pebble-lab-20261101"))
+
     def test_root_production_and_similar_user_identities_refused(self):
         for suffix in (
             "root",
@@ -918,6 +921,11 @@ class ControllerTests(unittest.TestCase):
 
 
 class RheaCompatibilityTests(unittest.TestCase):
+    def test_global_sts_signing_region_is_independent_of_wasabi_s3_region(self):
+        self.assertEqual(m.REGION, "ca-central-1")
+        self.assertEqual(m.STS_SIGNING_REGION, "us-east-1")
+        self.assertNotEqual(m.STS_SIGNING_REGION, m.REGION)
+
     def test_undecorated_remote_accepted(self):
         profile = m.PROFILES["full-clone"]
         value = clean_observation(profile)
