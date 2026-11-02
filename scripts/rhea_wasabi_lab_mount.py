@@ -536,12 +536,48 @@ class RealHost:
             session.client("sts", endpoint_url=STS_ENDPOINT, config=settings.merge(Config(signature_version="v4"))),
         )
 
+    def no_hidden_wasabi_kubo(self) -> None:
+        """An absent Kubo unit is safe only if no Kubo process uses its repo."""
+        repo = "/home/ubuntu/.ipfs-wasabi"
+        marker = repo.encode()
+        for proc in Path("/proc").iterdir():
+            if not proc.name.isdigit():
+                continue
+            try:
+                comm = (proc / "comm").read_text().strip()
+            except FileNotFoundError:
+                continue
+            if comm not in ("ipfs", "kubo"):
+                continue
+            try:
+                argv = (proc / "cmdline").read_bytes()
+                env = (proc / "environ").read_bytes()
+                require(marker not in argv and marker not in env,
+                        "production Wasabi Kubo process remains active")
+                for fd in (proc / "fd").iterdir():
+                    try:
+                        target = os.readlink(fd)
+                    except FileNotFoundError:
+                        continue
+                    require(target != repo and not target.startswith(repo + "/"),
+                            "production Wasabi Kubo still holds repository files")
+            except FileNotFoundError:
+                continue
+            except PermissionError:
+                raise Refusal("cannot inspect Kubo process while its unit is missing") from None
+
     def guard(self, profile: Profile, running: bool) -> None:
         p = get_profile(profile)
         self.dependencies()
         for name in PROD_OFF:
             state = self.service(name)
-            require(state.get("LoadState") == "loaded" and state.get("ActiveState") == "inactive", "production Kubo/pin walker must stay inactive")
+            require(state.get("ActiveState") == "inactive",
+                    "production Kubo/pin walker must stay inactive")
+            if name == "rhea-ipfs-wasabi-kubo.service" and state.get("LoadState") == "not-found":
+                self.no_hidden_wasabi_kubo()
+            else:
+                require(state.get("LoadState") == "loaded",
+                        "unexpected production Kubo/pin walker unit state")
         state = self.service(PROD_MOUNT)
         require(state.get("LoadState") == "loaded" and state.get("ActiveState") == "active" and state.get("SubState") == "running", "production rclone must remain active")
         if p.name == "full-clone":

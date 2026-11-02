@@ -430,6 +430,64 @@ class LocalHostTests(unittest.TestCase):
                 paths.assert_not_called()
                 cloud.assert_not_called()
 
+    def test_absent_production_kubo_unit_needs_process_scan(self):
+        selected = m.PROFILES["full-clone"]
+        states = {
+            m.PROD_OFF[0]: {"LoadState": "not-found", "ActiveState": "inactive"},
+            m.PROD_OFF[1]: {"LoadState": "loaded", "ActiveState": "inactive"},
+            m.PROD_MOUNT: {"LoadState": "loaded", "ActiveState": "active", "SubState": "running"},
+            m.READER: {"ActiveState": "inactive"},
+        }
+        with patch.object(self.host, "dependencies"), patch.object(
+            self.host, "service", side_effect=lambda name: states[name]
+        ), patch.object(self.host, "no_hidden_wasabi_kubo") as no_process, patch.object(
+            self.host, "running", return_value=False
+        ), patch.object(self.host, "paths", side_effect=RuntimeError("passed process gate")):
+            with self.assertRaisesRegex(RuntimeError, "passed process gate"):
+                self.host.guard(selected, running=False)
+        no_process.assert_called_once_with()
+
+    def test_absent_pin_walker_or_active_kubo_still_refused(self):
+        selected = m.PROFILES["full-clone"]
+        base = {
+            m.PROD_OFF[0]: {"LoadState": "not-found", "ActiveState": "inactive"},
+            m.PROD_OFF[1]: {"LoadState": "loaded", "ActiveState": "inactive"},
+        }
+        for change in ({m.PROD_OFF[0]: {"LoadState": "not-found", "ActiveState": "active"}},
+                       {m.PROD_OFF[1]: {"LoadState": "not-found", "ActiveState": "inactive"}}):
+            states = copy.deepcopy(base)
+            states.update(change)
+            with patch.object(self.host, "dependencies"), patch.object(
+                self.host, "service", side_effect=lambda name: states[name]
+            ), patch.object(self.host, "no_hidden_wasabi_kubo"):
+                with self.assertRaises(m.Refusal):
+                    self.host.guard(selected, running=False)
+
+    def test_hidden_wasabi_kubo_process_refused_without_blocking_other_ipfs(self):
+        with tempfile.TemporaryDirectory() as location:
+            proc = Path(location) / "12345"
+            proc.mkdir()
+            (proc / "fd").mkdir()
+            (proc / "comm").write_text("ipfs\n")
+            (proc / "cmdline").write_bytes(b"ipfs\0daemon\0--offline\0")
+            (proc / "environ").write_bytes(b"IPFS_PATH=/data/ipfs\0")
+            real_iterdir = Path.iterdir
+
+            def scan_iterdir(path):
+                return iter([proc]) if path == Path("/proc") else real_iterdir(path)
+
+            with patch.object(Path, "iterdir", autospec=True, side_effect=scan_iterdir):
+                self.host.no_hidden_wasabi_kubo()
+                (proc / "environ").write_bytes(b"IPFS_PATH=/home/ubuntu/.ipfs-wasabi\0")
+                with self.assertRaisesRegex(m.Refusal, "Wasabi Kubo process"):
+                    self.host.no_hidden_wasabi_kubo()
+                (proc / "environ").write_bytes(b"IPFS_PATH=/data/ipfs\0")
+                (proc / "fd" / "5").symlink_to(
+                    "/home/ubuntu/.ipfs-wasabi/pebbleds/CURRENT"
+                )
+                with self.assertRaisesRegex(m.Refusal, "Wasabi Kubo"):
+                    self.host.no_hidden_wasabi_kubo()
+
 
 class UnitTests(unittest.TestCase):
     def test_fixed_commands_root_privacy_resources_and_host_visibility(self):

@@ -109,6 +109,15 @@ The production invariants are:
 | `rhea-ipfs-wasabi-rclone-mount.service` | active |
 | `rhea-pebble-lab-reader-fast-mount-20261102.service` | inactive before `full-clone` |
 
+The verified Rhea host currently has no installed unit named
+`rhea-ipfs-wasabi-kubo.service`: systemd reports `LoadState=not-found`,
+`ActiveState=inactive`. The wrapper accepts **only this specific absent
+Kubo unit**, and only after inspecting active `ipfs`/`kubo` processes'
+arguments, environment, and open file descriptors for references to
+`/home/ubuntu/.ipfs-wasabi`. This does not prohibit the separate regular
+IPFS daemon on `/data/ipfs`. The pin walker still must be loaded and
+inactive; active or unexpected service states always fail closed.
+
 The wrapper only observes production services. It must never stop, restart,
 reconfigure, or replace the production rclone mount. It also does not stop the
 read-only lab reader on an operator's behalf. Unexpected service states and a
