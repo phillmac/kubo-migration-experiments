@@ -29,7 +29,9 @@ Both profiles use bucket `rhea-pebble-lab-20261101-39037c6f01` in region
 The full remote is `rhea_pebble_lab:<bucket>/<remote suffix>`. These are exact
 values, not templates accepting user substitution. Identity checks accept the
 exact remote or rclone's configuration-hash spelling
-`rhea_pebble_lab{_<safe suffix>}:<exact bucket>/<exact prefix>`. The decoration
+`rhea_pebble_lab{<safe suffix>}:<exact bucket>/<exact prefix>`. The suffix is
+1–64 base64url characters (`A-Z`, `a-z`, `0-9`, `_`, `-`); an initial underscore
+is optional. Observed spellings include `{_9Ic9}` and `{Dn7qA}`. The decoration
 never permits a different bucket or prefix. The cache size is an rclone
 eviction target, not a hard limit on dirty or peak disk use. Preflight and start require
 at least **2 TiB free** on the cache filesystem. Status, clean stop, and selected

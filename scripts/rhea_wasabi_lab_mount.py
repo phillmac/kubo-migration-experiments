@@ -328,7 +328,7 @@ def remote_matches(profile: Profile, value: str) -> bool:
     if not isinstance(value, str):
         return False
     suffix = p.remote.split(":", 1)[1]
-    pattern = re.escape(REMOTE) + r"(?:\{_[A-Za-z0-9_-]{1,64}\})?:" + re.escape(suffix)
+    pattern = re.escape(REMOTE) + r"(?:\{[A-Za-z0-9_-]{1,64}\})?:" + re.escape(suffix)
     return re.fullmatch(pattern, value) is not None
 
 
@@ -783,13 +783,13 @@ class RealHost:
             )
             require(struct.unpack("3i", peer) == (pid, 0, 0),
                     "RC socket peer is not the lab MainPID")
-            http = http.client.HTTPConnection("localhost", timeout=15)
-            http.sock = connection
-            http.request(
+            http_connection = http.client.HTTPConnection("localhost", timeout=15)
+            http_connection.sock = connection
+            http_connection.request(
                 "POST", "/" + method, body=urlencode(parameters or {}),
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            response = http.getresponse()
+            response = http_connection.getresponse()
             require(response.status == 200, "RC request failed")
             body = response.read(4 * 1024**2 + 1)
             require(len(body) <= 4 * 1024**2, "RC response exceeds bound")

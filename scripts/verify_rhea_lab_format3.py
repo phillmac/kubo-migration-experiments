@@ -24,7 +24,7 @@ import sys
 BUCKET = "rhea-pebble-lab-20261101-39037c6f01"
 PREFIX = "rhea/pebbleds/"
 WRAPPER = Path("/root/.local/share/rhea-wasabi-lab-admin-20261101/rhea_wasabi_lab_mount.py")
-WRAPPER_SHA256 = "841297fa368e13e3f59cd12002c8f44db3e41ddaa82bff17a541d01143ef1dc1"
+WRAPPER_SHA256 = "6c1affe9cd791bd8f16435df6f0db284b105f94829ae270b1242dd3cfaef785c"
 EXPECTED_SSTS = 93_697
 EXPECTED_SST_BYTES = 7_786_594_080_785
 EXPECTED_INVENTORY = "57b04d9508272a17df72aea1a6675fff1e13944ae83c884f988668b7f77cd134"

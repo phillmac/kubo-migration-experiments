@@ -953,6 +953,29 @@ class RheaCompatibilityTests(unittest.TestCase):
         m.validate_stats(profile, value)
         self.assertTrue(m.remote_matches(profile, remote))
 
+    def test_observed_nonunderscored_decoration_is_accepted(self):
+        profile = m.PROFILES["full-clone"]
+        remote = profile.remote.replace(":", "{Dn7qA}:", 1)
+        value = clean_observation(profile)
+        value["stats"]["fs"] = remote
+        m.validate_stats(profile, value)
+        self.assertTrue(m.remote_matches(profile, remote))
+
+    def test_malformed_or_substituted_decoration_is_refused(self):
+        profile = m.PROFILES["full-clone"]
+        valid = profile.remote.replace(":", "{Dn7qA}:", 1)
+        invalid = [profile.remote.replace(":", "{" + suffix + "}:", 1)
+                   for suffix in ("", "a" * 65, "a/b", "a+b", "a=b", "a.b", "a\nb", "{Dn7qA}")]
+        invalid += [valid + "/other", valid + "\n", valid.replace("rhea_pebble_lab{", "rhea_pebble_lab_extra{"),
+                    valid.replace(m.BUCKET, "ipfs-remote-mount"), valid + "-wrong-prefix"]
+        for remote in invalid:
+            with self.subTest(remote=remote):
+                self.assertFalse(m.remote_matches(profile, remote))
+                value = clean_observation(profile)
+                value["stats"]["fs"] = remote
+                with self.assertRaises(m.Refusal):
+                    m.validate_stats(profile, value)
+
     def test_decorated_wrong_bucket_refused(self):
         profile = m.PROFILES["full-clone"]
         value = clean_observation(profile)
@@ -993,7 +1016,8 @@ class CompatibilityTests(LocalHostTests):
     def test_exact_and_decorated_names_pass_stats_and_paths(self):
         for profile in m.PROFILES.values():
             self.profile = profile
-            for remote in (profile.remote, profile.remote.replace(":", "{_abc123}:", 1)):
+            for remote in (profile.remote, profile.remote.replace(":", "{_abc123}:", 1),
+                           profile.remote.replace(":", "{Dn7qA}:", 1)):
                 with self.subTest(remote=remote):
                     observation = clean_observation(profile)
                     observation["stats"]["fs"] = remote
@@ -1338,6 +1362,34 @@ class QueueExpiryTests(unittest.TestCase):
             with self.assertRaisesRegex(m.Refusal, "MainPID changed"):
                 host.rc(self.profile, "vfs/queue-set-expiry", {"id": 7, "expiry": -1_000_000_000}, expected_pid=999)
             connect.assert_not_called()
+
+    def test_actual_rc_body_connects_authenticated_unix_peer_and_decodes_json(self):
+        host = m.RealHost()
+        info = SimpleNamespace(st_mode=stat.S_IFSOCK | 0o600, st_uid=0, st_gid=0)
+        for method, parameters in (("vfs/stats", None), ("vfs/queue", None),
+                                   ("vfs/queue-set-expiry", {"id": 7, "expiry": -1_000_000_000}),
+                                   ("core/quit", {"exitCode": 0})):
+            with self.subTest(method=method):
+                connection, http_connection = Mock(), Mock()
+                connection.getsockopt.return_value = struct.pack("3i", 999, 0, 0)
+                response = http_connection.getresponse.return_value
+                response.status = 200
+                response.read.return_value = b'{"ok": true}'
+                with patch.object(host, "service", return_value={"MainPID": "999"}), patch.object(
+                    host, "unit_identity", return_value=999
+                ), patch.object(m, "secure_path"), patch.object(Path, "lstat", return_value=info), patch.object(
+                    m.socket, "socket", return_value=connection
+                ), patch.object(m.http.client, "HTTPConnection", return_value=http_connection) as create_http:
+                    self.assertEqual(host.rc(self.profile, method, parameters, expected_pid=999), {"ok": True})
+                connection.connect.assert_called_once_with(str(self.profile.rc_socket))
+                connection.getsockopt.assert_called_once_with(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+                create_http.assert_called_once_with("localhost", timeout=15)
+                self.assertIs(http_connection.sock, connection)
+                http_connection.request.assert_called_once_with(
+                    "POST", "/" + method, body=m.urlencode(parameters or {}),
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                connection.close.assert_called_once_with()
 
     def test_rc_rejects_unscoped_expiry_parameters_and_missing_pid(self):
         host = m.RealHost()
