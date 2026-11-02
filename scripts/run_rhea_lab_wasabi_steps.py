@@ -25,7 +25,10 @@ READER_CONFIG = "/root/.config/rclone/rhea-pebble-lab-reader-20261102.conf"
 DEST = "rhea_pebble_lab_reader:rhea-pebble-lab-20261101-39037c6f01/__rhea_step_rewrite_20261102/pebbleds"
 RC = "127.0.0.1:55845"
 EXPECTED_SHA = "dd9260adf5212eca8dd68e5f4099d9620536bc64076f21df67d6db8b3ba05466"
-EXPECTED_DEMO_BIN_SHA = "781b60bf09dadd33e55b96fc2344855a8d4d32092cd9923cc41a25e1b713130d"
+ALLOWED_TESTED_DEMO_BIN_SHAS = {
+    "781b60bf09dadd33e55b96fc2344855a8d4d32092cd9923cc41a25e1b713130d",
+    "fda4f3c24a1f6d96656ec7387b4581cb1ceaae15db5d05f0024076743f78baf1",
+}
 
 
 def call(args: list[str], timeout: int = 90) -> str:
@@ -48,7 +51,7 @@ def rc(method: str, **kwargs: object) -> dict:
 def validate() -> None:
     assert os.geteuid() == 0
     assert DB.is_dir() and ROOT.name.startswith("kubo-lab-")
-    assert hashlib.sha256(DEMO.read_bytes()).hexdigest() == EXPECTED_DEMO_BIN_SHA
+    assert hashlib.sha256(DEMO.read_bytes()).hexdigest() in ALLOWED_TESTED_DEMO_BIN_SHAS
     assert call(["systemctl", "show", "rhea-ipfs-wasabi-kubo.service",
                  "-p", "ActiveState", "--value"]).strip() == "inactive"
     assert call(["systemctl", "show", "rhea-broken-pin-walk-20261026.service",
