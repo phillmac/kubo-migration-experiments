@@ -5,12 +5,15 @@
 package main
 
 import (
+ "crypto/sha256"
+ "encoding/hex"
  "encoding/json"
  "errors"
  "fmt"
  "os"
  "os/exec"
  "path/filepath"
+ "sort"
  "strings"
  "time"
 
@@ -34,6 +37,8 @@ type report struct {
  SSTFilesAfter int `json:"sst_files_after"`
  SSTBytesBefore uint64 `json:"sst_bytes_before"`
  SSTBytesAfter uint64 `json:"sst_bytes_after"`
+ SSTInventorySHA256Before string `json:"sst_inventory_sha256_before"`
+ SSTInventorySHA256After string `json:"sst_inventory_sha256_after"`
  MarkedBefore int `json:"marked_before"`
  MarkedAfter int `json:"marked_after"`
  Seconds float64 `json:"seconds"`
@@ -67,12 +72,33 @@ func gate(action string) error {
  return nil
 }
 
-func sst(db *pebble.DB) (int,uint64,error) {
- levels,err:=db.SSTables();if err!=nil{return 0,0,err}
- var count int
+type inventoryEntry struct {
+ Number uint64
+ Size uint64
+}
+
+// inventoryDigest hashes decimal file-number, TAB, decimal size, LF for every
+// referenced SST, sorted numerically by file number. It deliberately excludes
+// the level: moving a table between levels does not change its object identity.
+// The digest detects table substitutions with identical counts/total bytes.
+func inventoryDigest(entries []inventoryEntry) (string,error) {
+ ordered:=append([]inventoryEntry(nil),entries...)
+ sort.Slice(ordered,func(i,j int)bool{return ordered[i].Number<ordered[j].Number})
+ h:=sha256.New()
+ for i,entry:=range ordered {
+  if i>0 && ordered[i-1].Number==entry.Number {return "",errors.New("duplicate SST file number in manifest inventory")}
+  fmt.Fprintf(h,"%d\t%d\n",entry.Number,entry.Size)
+ }
+ return hex.EncodeToString(h.Sum(nil)),nil
+}
+
+func sst(db *pebble.DB) (int,uint64,string,error) {
+ levels,err:=db.SSTables();if err!=nil{return 0,0,"",err}
+ var entries []inventoryEntry
  var total uint64
- for _,level:=range levels {for _,x:=range level{count++;total+=x.Size}}
- return count,total,nil
+ for _,level:=range levels {for _,x:=range level{entries=append(entries,inventoryEntry{uint64(x.FileNum),x.Size});total+=x.Size}}
+ digest,err:=inventoryDigest(entries)
+ return len(entries),total,digest,err
 }
 
 func main(){
@@ -89,7 +115,7 @@ func main(){
  db,err:=pebble.Open(labDB,opts)
  if err!=nil{fmt.Fprintln(os.Stderr,"opening lab failed:",err);os.Exit(1)}
  r:=report{Action:action,BeforeFormat:db.FormatMajorVersion().String(),MarkedBefore:db.Metrics().Compact.MarkedFiles}
- r.SSTFilesBefore,r.SSTBytesBefore,err=sst(db)
+ r.SSTFilesBefore,r.SSTBytesBefore,r.SSTInventorySHA256Before,err=sst(db)
  if err==nil && action!="inspect" && (r.BeforeFormat!="001" || r.MarkedBefore!=0 ||
   r.SSTFilesBefore!=baselineFiles || r.SSTBytesBefore!=baselineBytes) {
   err=errors.New("unexpected lab manifest, file count, byte sum, marks or format; no ratchet attempted")
@@ -97,9 +123,10 @@ func main(){
  if err==nil && action=="ratchet3" {err=db.RatchetFormatMajorVersion(3)}
  r.AfterFormat=db.FormatMajorVersion().String()
  r.MarkedAfter=db.Metrics().Compact.MarkedFiles
- if err==nil {r.SSTFilesAfter,r.SSTBytesAfter,err=sst(db)}
+ if err==nil {r.SSTFilesAfter,r.SSTBytesAfter,r.SSTInventorySHA256After,err=sst(db)}
  if err==nil && action=="ratchet3" {
-  if r.AfterFormat!="003" || r.SSTFilesAfter!=baselineFiles || r.SSTBytesAfter!=baselineBytes || r.MarkedAfter!=0 {
+  if r.AfterFormat!="003" || r.SSTFilesAfter!=baselineFiles || r.SSTBytesAfter!=baselineBytes || r.MarkedAfter!=0 ||
+   r.SSTInventorySHA256Before!=r.SSTInventorySHA256After {
    err=errors.New("unexpected SST changes during format3 ratchet")
   }
  }
