@@ -125,7 +125,7 @@ func main(){
    events=append(events,result{"type":"end","job":info.JobID,"reason":info.Reason,"input":in,"output":out,"error":errorText,"milliseconds":info.Duration.Milliseconds()})
   },
  }
- options:=&pebble.Options{ErrorIfNotExists:true,FormatMajorVersion:pebble.FormatMostCompatible,
+ options:=&pebble.Options{ErrorIfNotExists:true,ReadOnly:*action=="inspect",FormatMajorVersion:pebble.FormatMostCompatible,
   DisableAutomaticCompactions:true,MaxConcurrentCompactions:func()int{return 1},EventListener:listener}
  opened:=time.Now()
  db,err:=pebble.Open(*dir,options)
