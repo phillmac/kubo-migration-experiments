@@ -114,7 +114,10 @@ def verify_download(marked: int, fmt: str, ordinal: int) -> dict:
 
 def run() -> None:
     validate()
-    # The independent S3-downloaded checkpoint is the read preflight;\n    # the demo inspector opens Pebble writable even in inspect mode.\n    # Never let an unnecessary live-FUSE inspection enqueue metadata.\n    before = run_demo("inspect", ROOT / "recovery" / "pebbleds")
+    # The independent S3-downloaded checkpoint is the read preflight;
+    # the demo inspector opens Pebble writable even in inspect mode.
+    # Never let an unnecessary live-FUSE inspection enqueue metadata.
+    before = run_demo("inspect", ROOT / "recovery" / "pebbleds")
     assert before["format_after"] == "013" and before["marked_after"] == 3
     assert before["keys_after"] == 8192 and before["keys_sha256_after"] == EXPECTED_SHA
     reports = []
