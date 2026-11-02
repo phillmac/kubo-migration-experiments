@@ -25,6 +25,7 @@ import stat
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 from urllib.parse import urlencode
 
@@ -45,6 +46,9 @@ LEDGER = Path(
     "wasabi-lab-baseline-version-ledger-20261102.jsonl.gz"
 )
 LEDGER_SHA256 = "38f7a0179aa7d7e4e166ffbd5818a224d0103e57e318706c578aa3506245fe96"
+ADMISSIONS = RCLONE.parent / "admissions"
+ADMISSION_MAX_BYTES = 16_384
+QUEUE_EXPIRIES = {"expedite": -1_000_000_000, "defer": 86_400}
 BASELINE_COUNT = 93_707
 BASELINE_SSTS = 93_697
 BASELINE_BYTES = 7_786_625_086_413
@@ -230,10 +234,16 @@ def _matches(entry: LedgerEntry, value: dict, size_field: str) -> bool:
     )
 
 
-def verify_cloud(s3, sts, ledger: dict[str, LedgerEntry]) -> None:
-    """Only independent, read-only versioned S3/STS API calls; never rclone."""
-    validate_identity(sts.get_caller_identity())
+def verify_cloud_identity(s3, sts) -> dict:
+    response = sts.get_caller_identity()
+    validate_identity(response)
     require(s3.get_bucket_versioning(Bucket=BUCKET).get("Status") == "Enabled", "bucket versioning is not enabled")
+    return {key: response[key] for key in ("Account", "Arn", "UserId")}
+
+
+def verify_cloud(s3, sts, ledger: dict[str, LedgerEntry]) -> dict:
+    """First admission only: independently prove the unchanged baseline."""
+    identity = verify_cloud_identity(s3, sts)
     latest = set()
     for page in s3.get_paginator("list_object_versions").paginate(Bucket=BUCKET, Prefix="rhea/"):
         require(not any(x.get("IsLatest") for x in page.get("DeleteMarkers", [])), "baseline has a latest delete marker")
@@ -258,6 +268,59 @@ def verify_cloud(s3, sts, ledger: dict[str, LedgerEntry]) -> None:
         require(body.read(len(CURRENT) + 1) == CURRENT, "frozen CURRENT content mismatch")
     finally:
         body.close()
+    return identity
+
+
+def admission_binding(profile: Profile, fingerprints: tuple[str, str, str]) -> dict:
+    p = get_profile(profile)
+    return {
+        "schema": 1, "kind": "baseline-admission-not-checkpoint",
+        "profile": p.name, "remote": p.remote, "region": REGION,
+        "endpoint": S3_ENDPOINT, "mountpoint": str(p.mountpoint),
+        "cache": str(p.cache), "unit": p.unit,
+        "unit_sha256": hashlib.sha256(render_unit(p).encode()).hexdigest(),
+        "rclone_sha256": fingerprints[0], "config_sha256": fingerprints[1],
+        "ledger_sha256": fingerprints[2],
+    }
+
+
+def validate_admission(record: dict, profile: Profile, fingerprints: tuple[str, str, str]) -> None:
+    expected = admission_binding(profile, fingerprints)
+    require(isinstance(record, dict) and set(record) == set(expected) | {"identity", "admitted_unix"},
+            "invalid admission journal fields")
+    require(all(type(record[key]) is type(value) and record[key] == value for key, value in expected.items()),
+            "admission journal binding mismatch")
+    require(type(record["admitted_unix"]) is int and record["admitted_unix"] > 0,
+            "invalid admission journal timestamp")
+    identity = record["identity"]
+    require(isinstance(identity, dict) and set(identity) == {"Account", "Arn", "UserId"},
+            "invalid admission journal identity")
+    validate_identity(identity)
+
+
+def validate_queue_selection(profile: Profile, observation: dict, *, item_id: int,
+                             name: str, size: int, pid: int, expiry: str) -> None:
+    require(type(item_id) is int and 0 < item_id < 2**63, "invalid queue id")
+    require(type(size) is int and 0 <= size < 2**63, "invalid expected file size")
+    require(type(pid) is int and pid > 1, "invalid expected peer PID")
+    require(isinstance(expiry, str) and expiry in QUEUE_EXPIRIES, "unknown queue expiry choice")
+    require(isinstance(name, str) and re.fullmatch(
+        r"pebbleds/(?:[0-9]{6,20}\.(?:sst|log)|(?:MANIFEST|OPTIONS)-[0-9]{6,20}|CURRENT|"
+        r"marker\.manifest\.[0-9]{6,20}\.MANIFEST-[0-9]{6,20}|"
+        r"marker\.format-version\.[0-9]{6,20}\.[0-9]{3})", name) is not None,
+        "queue file is outside approved Pebble filenames")
+    validate_stats(profile, observation)
+    require(type(observation.get("pid")) is int and observation["pid"] == pid,
+            "queue observation peer PID mismatch")
+    entries = observation["queue"]["queue"]
+    require(all(isinstance(row, dict) and type(row.get("id")) is int for row in entries),
+            "invalid queue entry")
+    selected = [row for row in entries if row["id"] == item_id or row.get("name") == name]
+    require(len(selected) == 1, "queue selection missing or ambiguous")
+    row = selected[0]
+    require(row["id"] == item_id and row.get("name") == name
+            and type(row.get("size")) is int and row["size"] == size
+            and row.get("uploading") is False, "queue tuple changed or already uploading")
 
 
 def remote_matches(profile: Profile, value: str) -> bool:
@@ -312,7 +375,7 @@ def secure_path(path: Path, *, leaf_mode: int | None = None, missing: bool = Fal
             require(info.st_nlink == 1, "hardlinked protected file")
 
 
-def read_protected(path: Path, *, mode: int | None = None) -> bytes:
+def read_protected(path: Path, *, mode: int | None = None, max_bytes: int | None = None) -> bytes:
     secure_path(path, leaf_mode=mode)
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
@@ -320,7 +383,9 @@ def read_protected(path: Path, *, mode: int | None = None) -> bytes:
         require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, "not a private regular file")
         require(info.st_uid == 0 and info.st_gid == 0 and info.st_mode & 0o022 == 0, "untrusted protected file")
         with os.fdopen(fd, "rb", closefd=False) as stream:
-            return stream.read()
+            value = stream.read() if max_bytes is None else stream.read(max_bytes + 1)
+            require(max_bytes is None or len(value) <= max_bytes, "protected file exceeds size bound")
+            return value
     finally:
         os.close(fd)
 
@@ -400,6 +465,8 @@ class RealHost:
         self.systemctl = None
         self.fusermount = None
         self.fingerprints = None
+        self.admission_candidate = None
+        self.locked = False
 
     def run(self, args: list[str], timeout: int = 120) -> str:
         try:
@@ -468,7 +535,7 @@ class RealHost:
         require(uid == ["0"] * 4, "lab process is not root")
         return pid
 
-    def paths(self, p: Profile, running: bool, rows: list[dict]) -> None:
+    def paths(self, p: Profile, running: bool, rows: list[dict], *, admission: bool = True) -> None:
         secure_path(RUNTIME, leaf_mode=0o700, missing=True)
         secure_path(p.cache, leaf_mode=0o700, missing=True)
         require(not p.cache.exists() or p.cache.is_dir(), "cache is not a directory")
@@ -484,7 +551,7 @@ class RealHost:
             require(not p.rc_socket.exists() and not p.rc_socket.is_symlink(), "stale or substituted RC socket")
         for row in rows:
             target = Path(row["target"])
-            for protected in (p.mountpoint, p.cache, RUNTIME, CONFIG, RCLONE, LEDGER):
+            for protected in (p.mountpoint, p.cache, RUNTIME, CONFIG, RCLONE, LEDGER, ADMISSIONS):
                 # Normal host filesystem roots are allowed; deeper bind mounts are not.
                 if target in (Path("/"), Path("/data"), Path("/home"), Path("/mnt"), Path("/run")):
                     continue
@@ -495,7 +562,66 @@ class RealHost:
         while not base.exists():
             base = base.parent
         space = os.statvfs(base)
-        require(space.f_bavail * space.f_frsize >= MIN_FREE, "less than 2 TiB cache filesystem free")
+        if admission:
+            require(space.f_bavail * space.f_frsize >= MIN_FREE, "less than 2 TiB cache filesystem free")
+
+    def read_admission(self, profile: Profile) -> dict | None:
+        p = get_profile(profile)
+        secure_path(ADMISSIONS, leaf_mode=0o700, missing=True)
+        path = ADMISSIONS / f"{p.name}.json"
+        if not path.exists() and not path.is_symlink():
+            return None
+        require(self.fingerprints is not None, "protected input fingerprints unavailable")
+
+        def unique_object(pairs):
+            result = {}
+            for key, value in pairs:
+                require(key not in result, "duplicate admission journal field")
+                result[key] = value
+            return result
+
+        try:
+            record = json.loads(read_protected(path, mode=0o600, max_bytes=ADMISSION_MAX_BYTES),
+                                object_pairs_hook=unique_object)
+        except Refusal:
+            raise
+        except (ValueError, UnicodeError):
+            raise Refusal("invalid admission journal JSON") from None
+        validate_admission(record, p, self.fingerprints)
+        return record
+
+    def admit(self, profile: Profile) -> None:
+        """Persist first admission under the writer lock, before a mount can write."""
+        p = get_profile(profile)
+        require(self.locked, "admission journal requires writer lock")
+        if self.read_admission(p) is not None:
+            return
+        require(self.fingerprints is not None and self.admission_candidate is not None,
+                "fresh baseline admission evidence required")
+        record = self.admission_candidate
+        validate_admission(record, p, self.fingerprints)
+        self.mkdir_private(ADMISSIONS)
+        destination = ADMISSIONS / f"{p.name}.json"
+        require(not destination.exists() and not destination.is_symlink(), "admission journal appeared concurrently")
+        fd, temporary = tempfile.mkstemp(prefix=f".{p.name}-", dir=ADMISSIONS)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write((json.dumps(record, sort_keys=True) + "\n").encode())
+                stream.flush()
+                os.fsync(stream.fileno())
+            # The directory is root-only; lifecycle callers hold writer.lock.
+            require(not destination.exists() and not destination.is_symlink(), "admission journal appeared concurrently")
+            os.replace(temporary, destination)
+            for directory in (ADMISSIONS, ADMISSIONS.parent):
+                directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+        require(self.read_admission(p) == record, "persisted admission journal mismatch")
 
     def competitors(self, p: Profile, running: bool, rows: list[dict]) -> None:
         own_pid = self.unit_identity(p, self.service(p.unit), active=True) if running else None
@@ -572,7 +698,7 @@ class RealHost:
             except PermissionError:
                 raise Refusal("cannot inspect Kubo process while its unit is missing") from None
 
-    def guard(self, profile: Profile, running: bool) -> None:
+    def guard(self, profile: Profile, running: bool, *, admission: bool = True) -> None:
         p = get_profile(profile)
         self.dependencies()
         for name in PROD_OFF:
@@ -593,7 +719,7 @@ class RealHost:
                 require(not self.running(other), "another lab profile is active")
         require(self.running(p) == running, "lab state changed during admission")
         rows = mount_rows(Path("/proc/self/mountinfo").read_text())
-        self.paths(p, running, rows)
+        self.paths(p, running, rows, admission=admission)
         self.competitors(p, running, rows)
         binary = read_protected(RCLONE)
         require(hashlib.sha256(binary).hexdigest() == RCLONE_SHA256, "pinned rclone digest mismatch")
@@ -603,22 +729,44 @@ class RealHost:
         require(self.fingerprints in (None, fingerprints), "protected input changed during operation")
         self.fingerprints = fingerprints
         ledger = load_ledger(ledger_blob)
+        journal = self.read_admission(p)
+        require(not running or journal is not None, "active lab has no valid admission journal")
+        if journal is None and admission:
+            require(not p.cache.exists() or not any(p.cache.iterdir()),
+                    "first admission requires an empty cache; unaccounted cache replay forbidden")
         credentials = parse_config(config.decode())
         s3, sts = self.cloud(credentials)
         try:
-            verify_cloud(s3, sts, ledger)
+            if journal is None and admission:
+                identity = verify_cloud(s3, sts, ledger)
+                self.admission_candidate = dict(
+                    admission_binding(p, fingerprints), identity=identity,
+                    admitted_unix=int(time.time()),
+                )
+            else:
+                identity = verify_cloud_identity(s3, sts)
+                if journal is not None:
+                    require(identity == journal["identity"], "admitted cloud identity changed")
         finally:
             s3.close()
             sts.close()
 
-    def rc(self, profile: Profile, method: str, parameters: dict | None = None) -> dict:
+    def rc(self, profile: Profile, method: str, parameters: dict | None = None,
+           *, expected_pid: int | None = None) -> dict:
         p = get_profile(profile)
-        require(method in ("vfs/stats", "vfs/queue", "core/quit"), "RC method forbidden")
+        require(method in ("vfs/stats", "vfs/queue", "core/quit", "vfs/queue-set-expiry"), "RC method forbidden")
         if method == "core/quit":
             require(parameters == {"exitCode": 0}, "nonzero quit forbidden")
+        elif method == "vfs/queue-set-expiry":
+            require(isinstance(parameters, dict) and set(parameters) == {"id", "expiry"}
+                    and type(parameters["id"]) is int and 0 < parameters["id"] < 2**63
+                    and type(parameters["expiry"]) is int and parameters["expiry"] in QUEUE_EXPIRIES.values(),
+                    "unscoped queue expiry parameters")
+            require(type(expected_pid) is int and expected_pid > 1, "queue mutation requires expected peer PID")
         else:
             require(not parameters, "unexpected RC parameters")
         pid = self.unit_identity(p, self.service(p.unit), active=True)
+        require(expected_pid is None or pid == expected_pid, "lab MainPID changed before RC request")
         secure_path(RUNTIME, leaf_mode=0o700)
         info = p.rc_socket.lstat()
         require(
@@ -654,15 +802,17 @@ class RealHost:
     def observe(self, profile: Profile) -> dict:
         p = get_profile(profile)
         pid = self.unit_identity(p, self.service(p.unit), active=True)
-        result = {"stats": self.rc(p, "vfs/stats"), "queue": self.rc(p, "vfs/queue")}
+        result = {"pid": pid, "stats": self.rc(p, "vfs/stats", expected_pid=pid),
+                  "queue": self.rc(p, "vfs/queue", expected_pid=pid)}
         validate_stats(p, result)
         require(self.service(p.unit).get("MainPID") == str(pid),
                 "lab service restarted during RC observation")
         return result
 
-    def no_open_users(self, profile: Profile) -> None:
+    def no_open_users(self, profile: Profile, *, expected_pid: int | None = None) -> None:
         p = get_profile(profile)
         pid = self.unit_identity(p, self.service(p.unit), active=True)
+        require(expected_pid is None or pid == expected_pid, "lab MainPID changed during closed-file check")
         prefix = str(p.mountpoint)
         for proc in Path("/proc").iterdir():
             if not proc.name.isdigit() or int(proc.name) in (os.getpid(), pid):
@@ -693,8 +843,10 @@ class RealHost:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise Refusal("another lab wrapper operation holds writer lock") from None
+            self.locked = True
             yield
         finally:
+            self.locked = False
             os.close(fd)
 
     def mkdir_private(self, path: Path) -> None:
@@ -785,26 +937,28 @@ class Controller:
     def start(self, profile: str | Profile, apply: bool = False) -> dict:
         p = get_profile(profile)
         require(not self.host.running(p), "lab profile already active")
-        self.host.guard(p, running=False)
         result = {"profile": p.name, "action": "start", "applied": False, "unit": render_unit(p)}
         if apply:
             with self.host.lock():
                 self.host.guard(p, running=False)
                 self.host.stage(p)
                 self.host.guard(p, running=False)
+                self.host.admit(p)
                 self.host.launch(p)
                 # On failure, leave service/cache untouched for operator diagnosis.
-                self.host.guard(p, running=True)
+                self.host.guard(p, running=True, admission=False)
                 observation = self.host.observe(p)
                 validate_stats(p, observation)
                 result["applied"] = True
                 result.update(observation)
+        else:
+            self.host.guard(p, running=False)
         return result
 
     def status(self, profile: str | Profile) -> dict:
         p = get_profile(profile)
         running = self.host.running(p)
-        self.host.guard(p, running=running)
+        self.host.guard(p, running=running, admission=False)
         result = {"profile": p.name, "running": running}
         if running:
             observation = self.host.observe(p)
@@ -815,7 +969,7 @@ class Controller:
     def stop(self, profile: str | Profile, apply: bool = False) -> dict:
         p = get_profile(profile)
         running = self.host.running(p)
-        self.host.guard(p, running=running)
+        self.host.guard(p, running=running, admission=False)
         result = {"profile": p.name, "action": "stop", "applied": False, "running": running}
         if not running:
             return result
@@ -824,29 +978,70 @@ class Controller:
         clean_queue(observation["stats"], observation["queue"])
         if apply:
             with self.host.lock():
-                self.host.guard(p, running=True)
+                self.host.guard(p, running=True, admission=False)
                 observation = self.host.observe(p)
                 validate_stats(p, observation)
                 clean_queue(observation["stats"], observation["queue"])
                 self.host.halt(p)
-                self.host.guard(p, running=False)
+                self.host.guard(p, running=False, admission=False)
                 result["applied"] = True
                 result["running"] = False
+        return result
+
+    def queue_expiry(self, profile: str | Profile, *, item_id: int, name: str,
+                     size: int, pid: int, expiry: str, apply: bool = False) -> dict:
+        p = get_profile(profile)
+        require(p.name == "full-clone", "queue expiry is scoped to the full-clone profile")
+
+        def checked_selection():
+            require(self.host.running(p), "queue expiry requires an active lab mount")
+            self.host.guard(p, running=True, admission=False)
+            self.host.no_open_users(p, expected_pid=pid)
+            observation = self.host.observe(p)
+            validate_queue_selection(p, observation, item_id=item_id, name=name,
+                                     size=size, pid=pid, expiry=expiry)
+
+        checked_selection()
+        result = {"profile": p.name, "action": "queue-expiry", "applied": False,
+                  "pid": pid, "id": item_id, "name": name, "size": size, "expiry": expiry}
+        if apply:
+            with self.host.lock():
+                checked_selection()
+                self.host.no_open_users(p, expected_pid=pid)
+                self.host.rc(p, "vfs/queue-set-expiry",
+                             {"id": item_id, "expiry": QUEUE_EXPIRIES[expiry]}, expected_pid=pid)
+                require(self.host.service(p.unit).get("MainPID") == str(pid),
+                        "lab restarted during queue expiry mutation; inspect before retrying")
+                result["applied"] = True
         return result
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("preflight", "start", "status", "stop"))
+    parser.add_argument("command", choices=("preflight", "start", "status", "stop", "queue-expiry"))
     parser.add_argument("--profile", required=True, choices=tuple(PROFILES))
-    parser.add_argument("--apply", action="store_true", help="required for start/stop mutations")
+    parser.add_argument("--apply", action="store_true", help="required for start/stop/queue-expiry mutations")
+    parser.add_argument("--id", type=int, dest="item_id")
+    parser.add_argument("--name")
+    parser.add_argument("--size", type=int)
+    parser.add_argument("--pid", type=int)
+    parser.add_argument("--expiry", choices=tuple(QUEUE_EXPIRIES))
     args = parser.parse_args(argv)
-    if args.apply and args.command not in ("start", "stop"):
-        parser.error("--apply is only valid for start/stop")
+    if args.apply and args.command not in ("start", "stop", "queue-expiry"):
+        parser.error("--apply is only valid for start/stop/queue-expiry")
+    selection = {key: getattr(args, key) for key in ("item_id", "name", "size", "pid", "expiry")}
+    if args.command == "queue-expiry":
+        if any(value is None for value in selection.values()):
+            parser.error("queue-expiry requires --id, --name, --size, --pid and --expiry")
+    elif any(value is not None for value in selection.values()):
+        parser.error("queue selection arguments require queue-expiry")
     try:
         controller = Controller()
-        method = getattr(controller, args.command)
-        result = method(args.profile, apply=args.apply) if args.command in ("start", "stop") else method(args.profile)
+        method = getattr(controller, args.command.replace("-", "_"))
+        if args.command == "queue-expiry":
+            result = method(args.profile, apply=args.apply, **selection)
+        else:
+            result = method(args.profile, apply=args.apply) if args.command in ("start", "stop") else method(args.profile)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     except Refusal as exc:

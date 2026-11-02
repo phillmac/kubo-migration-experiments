@@ -31,8 +31,10 @@ values, not templates accepting user substitution. Identity checks accept the
 exact remote or rclone's configuration-hash spelling
 `rhea_pebble_lab{_<safe suffix>}:<exact bucket>/<exact prefix>`. The decoration
 never permits a different bucket or prefix. The cache size is an rclone
-eviction target, not a hard limit on dirty or peak disk use. Both profiles require
-at least **2 TiB free** on the cache filesystem. An independent migration controller
+eviction target, not a hard limit on dirty or peak disk use. Preflight and start require
+at least **2 TiB free** on the cache filesystem. Status, clean stop, and selected
+queue-expiry changes retain the identity checks without this admission floor, so
+low-space or out-of-space conditions can still be diagnosed and drained. An independent migration controller
 would still need write budgets, backlog limits, and ongoing disk monitoring.
 
 The only permitted credential source is the root-owned, mode-0600 file:
@@ -81,7 +83,7 @@ python3 scripts/rhea_wasabi_lab_mount.py stop --profile full-clone --apply
 ```
 
 Use `--profile resume-fixture` for the isolated resume probe. No other profile is
-accepted. `preflight` is read-only. `start` and `stop` default to dry-run mode and
+accepted. `preflight` is read-only. `start`, `stop`, and `queue-expiry` default to dry-run mode and
 require `--apply` to change the laboratory service. A dry run can still read local
 host state and perform read-only Wasabi requests; it is not an offline simulation.
 All required checks must pass before an applied operation proceeds. Repeating an
@@ -91,6 +93,8 @@ old preflight result does not replace checks immediately before execution.
 socket before requesting `vfs/stats` and `vfs/queue`. Treat an unavailable socket,
 unexpected response schema, wrong filesystem identity, or failed dependency as a
 refusal, not as an empty queue.
+Status also returns the authenticated rclone `pid`; queue IDs are valid only for
+that process instance.
 
 `stop --apply` requires zero pending uploads, zero uploads in progress, zero
 errored files, an empty queue, and `outOfSpace=false`. It refuses dirty or
@@ -103,6 +107,36 @@ root-protected Unix RC socket and waits for service exit and unmount. It does no
 use `systemctl stop`. Resolve an upload failure using a separately reviewed
 recovery procedure, then inspect status again. The persistent cache is
 retained after a clean stop and must not be removed to make a refusal disappear.
+
+### Selected closed-file queue expiry
+
+Only the full-clone profile supports this narrowly scoped operation. Take the
+exact `pid` from status and the exact `id`, `name`, and `size` from its queue:
+
+```console
+python3 scripts/rhea_wasabi_lab_mount.py queue-expiry --profile full-clone \
+  --pid <observed-pid> --id <observed-id> --name pebbleds/<observed-file> \
+  --size <observed-bytes> --expiry expedite
+```
+
+Add `--apply` only to execute the reviewed selection. `expedite` sets expiry to
+`-1000000000` seconds from now; `defer` sets it to `86400` seconds from now. These
+are the only choices; the caller cannot supply an RC endpoint, filesystem,
+arbitrary parameters, or another duration. The pinned rclone 1.68.1 API defines
+expiry in seconds **from now**, not as an absolute Unix timestamp.
+
+The wrapper requires a valid admission journal, the expected active peer PID,
+no process using or mapping the mounted database, and one unambiguous live queue
+entry matching the supplied ID, filename, and size with `uploading=false`. Only
+recognized `pebbleds/` SST, WAL, MANIFEST, OPTIONS, CURRENT, and Pebble marker
+filenames are accepted. It repeats the selection and closed-user checks under
+the writer lock, pins that PID through the authenticated Unix-socket request,
+and refuses a restarted instance. No batch-wide expiry, forced upload, discard,
+or automatic retry is provided. Already uploading files cannot be deferred;
+natural queue expiry can race an operator, so inspect the queue and independent
+S3 evidence after each operation. A successful request is not a verified upload
+or checkpoint. The migration controller remains responsible for publication
+order and independent verification.
 
 ## Admission checks
 
@@ -182,11 +216,56 @@ validation binds the local evidence to the exact compressed-file SHA256 and
 rejects malformed or unexpected entries. Entries use `Key`, `VersionId`, `Size`,
 and `ETag`, or the corresponding lowercase aliases `key`, `version_id`, `size`,
 and `etag`. Counts, SST counts, and aggregate bytes must match the fixed baseline.
-The complete latest-object inventory from `ListObjectVersions` must match all
+For **first admission**, the complete latest-object inventory from `ListObjectVersions` must match all
 93,707 ledger entries. Critical HEAD checks address both latest and pinned
 versions of the original `CURRENT`, its active MANIFEST, repository `version`,
 and `datastore_spec`; a versioned GET also checks the exact CURRENT bytes. A
-modified, missing, deleted, or replaced original object is a refusal.
+modified, missing, deleted, or replaced baseline object is a refusal before
+first admission. The cache must also be absent or empty at first admission;
+an unexplained existing VFS cache must not replay writes immediately after an
+otherwise correct cloud-baseline check.
+
+### Durable admission and mutation-aware management
+
+The original VersionId ledger is never modified. A first applied start records
+that baseline admission in a separate, root-owned mode-0600 journal:
+
+```text
+/root/.local/share/rhea-wasabi-lab-admin-20261101/admissions/full-clone.json
+```
+
+The fixed resume-fixture profile uses `resume-fixture.json` in the same directory.
+The containing directory is root-owned mode 0700 and passes the same trusted
+ancestor checks. The record binds the exact profile, remote, region/endpoint,
+mountpoint, persistent cache, unit name and rendered-unit SHA-256, pinned rclone,
+configuration and baseline-ledger fingerprints, and the admitted IAM identity.
+The rendered-unit digest includes the RC socket, cache settings, writeback delay,
+and resource limits. Malformed, duplicate-field, oversized, substituted, or
+improperly owned journal files are refusals, never permission to readmit a clone.
+
+Under the writer lock, start checks the exact baseline, stages its fixed unit,
+rechecks admission, and durably records admission **before launching rclone**.
+The journal file is fsynced, atomically renamed, and both the containing directory
+and its parent are fsynced. Preflight, status, and dry-run start do not create a
+journal. A failed launch preserves the journal and cache for controlled
+continuation. An active mount without a valid journal is refused.
+
+Once admitted, later starts and management verify the same protected inputs,
+exact admitted IAM identity, enabled bucket versioning, service/process/mount/RC
+identity, conflicting writers and relevant queue checks. They allow the lab's
+latest objects to differ from the original ledger: new MANIFEST versions and
+obsolete-object delete markers are expected during migration. They do not repeat
+the unchanged-baseline inventory check or clear a nonempty persistent cache.
+Preflight and start still require the free-space reserve; status, clean stop,
+and selected queue draining do not require that reserve.
+
+The journal is explicitly an **admission record, not a checkpoint certificate**.
+Its presence does not establish database consistency, remote upload durability,
+or successful migration. An inactive, unadmitted status only checks identity and
+host state; it is not a baseline preflight. Independently certify each new closed
+generation's MANIFEST, referenced SSTs, WALs and markers, retaining separate
+progress/evidence records. Never remove a journal or rewrite the frozen ledger
+to force a modified clone through first admission.
 
 `resume-fixture` uses its separate probe prefix; checking the original `rhea/`
 baseline does not move the fixture into that prefix or authorize modifying it.
@@ -268,3 +347,10 @@ The tests exercise refusal and lifecycle behavior without SSH, Wasabi access,
 real systemd changes, mounting FUSE, or invoking Kubo. Formatting and existing
 repository tests should also pass before a local commit is considered ready for
 review. No test result authorizes deployment or production cutover.
+
+The mutation-aware regressions exercise the real guard with mocked host/cloud
+boundaries: a changed baseline fails first admission, while admitted status and
+clean shutdown accept changed latest versions and delete markers; dirty/error
+queues remain visible and still prevent ordinary stop. Additional tests cover
+journal binding/durability, first-start cache refusal, continuation cache
+preservation, low-space management, and closed-file queue tuple/PID checks.

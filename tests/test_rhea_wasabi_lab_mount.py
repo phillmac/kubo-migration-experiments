@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import copy
 import builtins
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 import gzip
 import hashlib
@@ -65,7 +65,7 @@ class FakeHost:
         self.dirty_on_lock = False
         self.locked = False
 
-    def guard(self, profile, running=False):
+    def guard(self, profile, running=False, *, admission=True):
         self.events.append(("guard", profile.name, running, self.locked))
         if self.guard_error is not None:
             raise self.guard_error
@@ -80,6 +80,9 @@ class FakeHost:
 
     def stage(self, profile):
         self.events.append(("stage", profile.name, self.locked))
+
+    def admit(self, profile):
+        self.events.append(("admit", profile.name, self.locked))
 
     def launch(self, profile):
         self.events.append(("launch", profile.name, self.locked))
@@ -296,6 +299,14 @@ class LocalHostTests(unittest.TestCase):
             with self.subTest(values=values), self.simulated_paths(**values):
                 with self.assertRaises(m.Refusal):
                     self.host.paths(self.profile, running=False, rows=[])
+
+    def test_management_paths_allow_low_free_space_without_relaxing_mount_identity(self):
+        with self.simulated_paths(free=0):
+            self.host.paths(self.profile, running=False, rows=[], admission=False)
+        with self.simulated_paths(free=0), self.assertRaises(m.Refusal):
+            self.host.paths(self.profile, running=False, rows=[], admission=True)
+        with self.simulated_paths(entries=(Path("unexpected"),), free=0), self.assertRaises(m.Refusal):
+            self.host.paths(self.profile, running=False, rows=[], admission=False)
 
     def test_wrong_remote_mount_and_protected_bind_mount_refused(self):
         wrong_source = {
@@ -865,6 +876,8 @@ class ControllerTests(unittest.TestCase):
         self.assertTrue(self.host.active)
         events = [event[0] for event in self.host.events]
         self.assertLess(events.index("stage"), events.index("launch"))
+        self.assertLess(events.index("admit"), events.index("launch"))
+        self.assertTrue(next(event[2] for event in self.host.events if event[0] == "admit"))
         self.assertTrue(all(event[2] for event in self.host.events if event[0] in {"stage", "launch"}))
         self.assertTrue(any(event[0] == "guard" and event[-1] is True for event in self.host.events))
 
@@ -1032,6 +1045,306 @@ class CompatibilityTests(LocalHostTests):
             self.host.halt(self.profile)
             rc.assert_called_once_with(self.profile, "core/quit", {"exitCode": 0})
             self.assertEqual(run.call_args.args[0][1], "show")
+
+
+class AdmissionJournalTests(unittest.TestCase):
+    def setUp(self):
+        self.host = m.RealHost()
+        self.profile = m.PROFILES["full-clone"]
+        self.host.fingerprints = ("a" * 64, "b" * 64, "c" * 64)
+        self.record = dict(m.admission_binding(self.profile, self.host.fingerprints),
+                           identity=IdentityTests().identity(), admitted_unix=1)
+        self.host.admission_candidate = self.record
+
+    @contextmanager
+    def journal_directory(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root) / "admissions"
+            # These tests simulate a root-owned protected store on any test UID.
+            real_fstat = os.fstat
+
+            def root_stat(fd):
+                info = real_fstat(fd)
+                return SimpleNamespace(st_mode=info.st_mode, st_nlink=info.st_nlink,
+                                       st_uid=0, st_gid=0)
+
+            with patch.object(m, "ADMISSIONS", directory), patch.object(m, "secure_path"), patch.object(
+                m.os, "fstat", side_effect=root_stat
+            ):
+                yield directory / "full-clone.json"
+
+    def test_journal_is_atomic_durable_private_and_unchanged_on_repeat(self):
+        with self.journal_directory() as path:
+            self.assertIsNone(self.host.read_admission(self.profile))
+            self.host.locked = True
+            real_fsync = os.fsync
+            with patch.object(m.os, "fsync", wraps=real_fsync) as synced:
+                self.host.admit(self.profile)
+            self.assertEqual(synced.call_count, 3)  # File, containing directory, and new directory's parent.
+            self.assertEqual(self.host.read_admission(self.profile), self.record)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
+            before = path.read_bytes()
+            self.host.admit(self.profile)
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(list(path.parent.iterdir()), [path])
+
+    def test_missing_lock_or_fresh_admission_evidence_refused(self):
+        with self.journal_directory(), self.assertRaisesRegex(m.Refusal, "writer lock"):
+            self.host.admit(self.profile)
+        self.host.locked = True
+        self.host.admission_candidate = None
+        with self.journal_directory(), self.assertRaisesRegex(m.Refusal, "fresh baseline"):
+            self.host.admit(self.profile)
+
+    def test_journal_binds_profile_paths_inputs_and_identity(self):
+        for key, value in (
+            ("schema", True), ("profile", "resume-fixture"), ("remote", "production:rhea"),
+            ("cache", "/data/wrong"), ("mountpoint", "/mnt/wrong"),
+            ("config_sha256", "d" * 64), ("ledger_sha256", "d" * 64),
+            ("unit_sha256", "d" * 64),
+            ("rclone_sha256", "d" * 64), ("identity", IdentityTests().identity("root")),
+            ("admitted_unix", True),
+        ):
+            with self.subTest(key=key), self.assertRaises(m.Refusal):
+                m.validate_admission(dict(self.record, **{key: value}), self.profile, self.host.fingerprints)
+
+    def test_malformed_duplicate_oversized_and_extra_fields_refused(self):
+        values = (
+            b"{", b"[]", b'{"schema":1,"schema":1}',
+            b" " * (m.ADMISSION_MAX_BYTES + 1),
+            json.dumps(dict(self.record, certified=True)).encode(),
+        )
+        with self.journal_directory() as path:
+            path.parent.mkdir(mode=0o700)
+            for value in values:
+                path.write_bytes(value)
+                path.chmod(0o600)
+                with self.subTest(length=len(value)), self.assertRaises(m.Refusal):
+                    self.host.read_admission(self.profile)
+
+    def test_existing_invalid_journal_is_not_overwritten(self):
+        with self.journal_directory() as path:
+            path.parent.mkdir(mode=0o700)
+            path.write_bytes(b"invalid journal")
+            self.host.locked = True
+            with self.assertRaises(m.Refusal):
+                self.host.admit(self.profile)
+            self.assertEqual(path.read_bytes(), b"invalid journal")
+
+    def test_symlink_and_hardlinked_journal_rejected(self):
+        with self.journal_directory() as path:
+            path.parent.mkdir(mode=0o700)
+            source = path.parent / "original"
+            source.write_text(json.dumps(self.record))
+            path.symlink_to(source)
+            with self.assertRaises(OSError):  # O_NOFOLLOW remains active even with simulated path metadata.
+                self.host.read_admission(self.profile)
+            path.unlink()
+            os.link(source, path)
+            with self.assertRaisesRegex(m.Refusal, "private regular"):
+                self.host.read_admission(self.profile)
+
+
+class RealGuardLifecycleTests(LedgerFixture):
+    def setUp(self):
+        super().setUp()
+        self.host = m.RealHost()
+        self.profile = m.PROFILES["full-clone"]
+        self.controller = m.Controller(self.host)
+        self.s3, self.sts = Mock(), Mock()
+        self.identity = IdentityTests().identity()
+        self.sts.get_caller_identity.return_value = self.identity
+        self.s3.get_bucket_versioning.return_value = {"Status": "Enabled"}
+        self.versions = [dict(row, IsLatest=True) for row in self.rows]
+        self.s3.get_paginator.return_value.paginate.return_value = [{"Versions": self.versions}]
+        self.s3.head_object.side_effect = lambda **kwargs: dict(
+            next(row for row in self.rows if row["Key"] == kwargs["Key"]),
+            ContentLength=next(row["Size"] for row in self.rows if row["Key"] == kwargs["Key"]),
+        )
+        self.s3.get_object.side_effect = lambda **kwargs: {
+            "VersionId": "version-current", "Body": io.BytesIO(m.CURRENT),
+        }
+        self.active = True
+        self.observation = clean_observation(self.profile)
+        self.observation["pid"] = 999
+
+    @contextmanager
+    def guarded_host(self, admitted=True):
+        blob = ledger_bytes(self.rows)
+        binary = b"offline pinned rclone"
+        config = ConfigTests().config().encode()
+        fingerprints = tuple(hashlib.sha256(value).hexdigest() for value in (binary, config, blob))
+        journal = dict(m.admission_binding(self.profile, fingerprints), identity=self.identity, admitted_unix=1)
+        states = {name: {"LoadState": "loaded", "ActiveState": "inactive"} for name in m.PROD_OFF}
+        states[m.PROD_MOUNT] = {"LoadState": "loaded", "ActiveState": "active", "SubState": "running"}
+        states[m.READER] = {"ActiveState": "inactive"}
+        protected = {m.RCLONE: binary, m.CONFIG: config, m.LEDGER: blob}
+        with self.ledger_constants(blob), patch.object(m, "RCLONE_SHA256", fingerprints[0]), patch.object(
+            self.host, "dependencies"
+        ), patch.object(self.host, "service", side_effect=lambda name: states[name]), patch.object(
+            self.host, "running", side_effect=lambda p: self.active if p == self.profile else False
+        ), patch.object(Path, "read_text", return_value=""), patch.object(self.host, "paths") as paths, patch.object(
+            self.host, "competitors"
+        ), patch.object(m, "read_protected", side_effect=lambda path, **kwargs: protected[path]), patch.object(
+            self.host, "read_admission", return_value=journal if admitted else None
+        ), patch.object(self.host, "cloud", return_value=(self.s3, self.sts)), patch.object(
+            self.host, "observe", side_effect=lambda p: copy.deepcopy(self.observation)
+        ), patch.object(self.host, "lock", return_value=nullcontext()), patch.object(
+            self.host, "halt", side_effect=lambda p: setattr(self, "active", False)
+        ) as halt:
+            yield paths, halt
+
+    def mutate_latest(self):
+        self.versions[1]["VersionId"] = "new-manifest-version"
+        self.versions.append({"Key": "rhea/pebbleds/MANIFEST-47475290", "IsLatest": True,
+                              "VersionId": "new-manifest", "Size": 10, "ETag": '"new"'})
+        self.s3.get_paginator.return_value.paginate.return_value[0]["DeleteMarkers"] = [
+            {"Key": "rhea/pebbleds/47475277.log", "IsLatest": True, "VersionId": "deleted-wal"},
+        ]
+
+    def test_unadmitted_first_start_still_rejects_mutated_baseline(self):
+        self.active = False
+        self.mutate_latest()
+        with self.guarded_host(admitted=False), patch.object(self.host, "stage") as stage:
+            with self.assertRaises(m.Refusal):
+                self.controller.start(self.profile, apply=True)
+            stage.assert_not_called()
+
+    def test_admitted_status_and_clean_stop_accept_new_versions_and_delete_markers(self):
+        self.mutate_latest()
+        with self.guarded_host() as (paths, halt):
+            result = self.controller.status(self.profile)
+            self.assertEqual(result["pid"], 999)
+            self.assertFalse(paths.call_args.kwargs["admission"])
+            self.assertTrue(self.controller.stop(self.profile, apply=True)["applied"])
+            halt.assert_called_once_with(self.profile)
+        self.s3.get_paginator.assert_not_called()
+        self.s3.head_object.assert_not_called()
+
+    def test_dirty_errors_and_out_of_space_remain_visible_but_prevent_stop(self):
+        self.mutate_latest()
+        self.observation["stats"]["diskCache"].update(uploadsQueued=1, erroredFiles=1, outOfSpace=True)
+        self.observation["queue"]["queue"] = [{"id": 1, "name": "pebbleds/000001.sst"}]
+        with self.guarded_host() as (paths, halt):
+            result = self.controller.status(self.profile)
+            self.assertTrue(result["stats"]["diskCache"]["outOfSpace"])
+            self.assertEqual(len(result["queue"]["queue"]), 1)
+            with self.assertRaisesRegex(m.Refusal, "uploads pending"):
+                self.controller.stop(self.profile, apply=True)
+            halt.assert_not_called()
+            self.assertTrue(all(call.kwargs["admission"] is False for call in paths.call_args_list))
+
+    def test_admitted_restart_skips_original_latest_inventory(self):
+        self.active = False
+        self.mutate_latest()
+        with self.guarded_host(), patch.object(self.host, "stage"), patch.object(self.host, "admit"), patch.object(
+            self.host, "launch", side_effect=lambda p: setattr(self, "active", True)
+        ):
+            self.assertTrue(self.controller.start(self.profile, apply=True)["applied"])
+        self.s3.get_paginator.assert_not_called()
+
+    def test_first_admission_rejects_unaccounted_cache_but_continuation_preserves_it(self):
+        self.active = False
+        with patch.object(Path, "exists", return_value=True), patch.object(
+            Path, "iterdir", return_value=iter([Path("vfsMeta/pending-file")])
+        ), self.guarded_host(admitted=False):
+            with self.assertRaisesRegex(m.Refusal, "empty cache"):
+                self.controller.preflight(self.profile)
+        with patch.object(Path, "iterdir") as cache_contents, self.guarded_host(admitted=True):
+            self.controller.preflight(self.profile)
+            cache_contents.assert_not_called()
+
+    def test_active_mount_requires_valid_journal_and_exact_admitted_identity(self):
+        with self.guarded_host(admitted=False), self.assertRaisesRegex(m.Refusal, "no valid admission"):
+            self.controller.status(self.profile)
+        with self.guarded_host():
+            self.sts.get_caller_identity.return_value = dict(self.identity, UserId="OTHER_USER_ID")
+            with self.assertRaisesRegex(m.Refusal, "identity changed"):
+                self.controller.status(self.profile)
+
+
+class QueueExpiryTests(unittest.TestCase):
+    def setUp(self):
+        self.profile = m.PROFILES["full-clone"]
+        self.observation = clean_observation(self.profile)
+        self.observation["pid"] = 999
+        self.observation["stats"]["diskCache"]["uploadsQueued"] = 1
+        self.row = {"id": 7, "name": "pebbleds/marker.format-version.000002.003", "size": 0, "uploading": False}
+        self.observation["queue"]["queue"] = [self.row]
+        self.selection = dict(item_id=7, name=self.row["name"], size=0, pid=999, expiry="expedite")
+        self.host = Mock()
+        self.host.running.return_value = True
+        self.host.observe.side_effect = lambda p: copy.deepcopy(self.observation)
+        self.host.lock.side_effect = lambda: nullcontext()
+        self.host.service.return_value = {"MainPID": "999"}
+        self.controller = m.Controller(self.host)
+
+    def test_dry_run_validates_closed_tuple_without_mutation(self):
+        result = self.controller.queue_expiry(self.profile, **self.selection)
+        self.assertFalse(result["applied"])
+        self.host.no_open_users.assert_called_once_with(self.profile, expected_pid=999)
+        self.host.rc.assert_not_called()
+        self.host.lock.assert_not_called()
+
+    def test_expedite_and_defer_use_only_fixed_values_and_pinned_pid(self):
+        for choice in m.QUEUE_EXPIRIES:
+            with self.subTest(choice=choice):
+                args = dict(self.selection, expiry=choice)
+                self.assertTrue(self.controller.queue_expiry(self.profile, apply=True, **args)["applied"])
+                self.host.rc.assert_called_with(self.profile, "vfs/queue-set-expiry",
+                                               {"id": 7, "expiry": m.QUEUE_EXPIRIES[choice]}, expected_pid=999)
+
+    def test_bad_paths_ids_sizes_pids_or_uploading_rows_refused(self):
+        variants = (
+            {"name": "../production/CURRENT"}, {"name": "pebbleds/../CURRENT"},
+            {"name": "CURRENT"}, {"name": "pebbleds/LOCK"}, {"item_id": True},
+            {"item_id": 8}, {"size": 1}, {"pid": 1000}, {"expiry": "arbitrary"},
+        )
+        for changed in variants:
+            with self.subTest(changed=changed), self.assertRaises(m.Refusal):
+                self.controller.queue_expiry(self.profile, apply=True, **dict(self.selection, **changed))
+        self.row["uploading"] = True
+        with self.assertRaises(m.Refusal):
+            self.controller.queue_expiry(self.profile, apply=True, **self.selection)
+        self.host.rc.assert_not_called()
+
+    def test_recheck_after_lock_refuses_changed_tuple(self):
+        first = copy.deepcopy(self.observation)
+        changed = copy.deepcopy(first)
+        changed["queue"]["queue"][0]["size"] = 100
+        self.host.observe.side_effect = [first, changed]
+        with self.assertRaises(m.Refusal):
+            self.controller.queue_expiry(self.profile, apply=True, **self.selection)
+        self.host.rc.assert_not_called()
+
+    def test_duplicate_id_or_name_is_ambiguous(self):
+        self.observation["queue"]["queue"].append(dict(self.row, id=8))
+        with self.assertRaisesRegex(m.Refusal, "ambiguous"):
+            self.controller.queue_expiry(self.profile, apply=True, **self.selection)
+        self.host.rc.assert_not_called()
+
+    def test_open_user_prevents_mutation(self):
+        self.host.no_open_users.side_effect = m.Refusal("process still uses lab mount")
+        with self.assertRaises(m.Refusal):
+            self.controller.queue_expiry(self.profile, apply=True, **self.selection)
+        self.host.rc.assert_not_called()
+
+    def test_rc_rejects_changed_pid_before_connecting(self):
+        host = m.RealHost()
+        with patch.object(host, "service"), patch.object(host, "unit_identity", return_value=1000), patch.object(
+            m.socket, "socket"
+        ) as connect:
+            with self.assertRaisesRegex(m.Refusal, "MainPID changed"):
+                host.rc(self.profile, "vfs/queue-set-expiry", {"id": 7, "expiry": -1_000_000_000}, expected_pid=999)
+            connect.assert_not_called()
+
+    def test_rc_rejects_unscoped_expiry_parameters_and_missing_pid(self):
+        host = m.RealHost()
+        for parameters, pid in (({"id": 7, "expiry": 0}, 999), ({"id": 7, "expiry": -1_000_000_000}, None),
+                                ({"id": 7, "expiry": 86_400, "fs": "production:rhea"}, 999)):
+            with self.subTest(parameters=parameters, pid=pid), self.assertRaises(m.Refusal):
+                host.rc(self.profile, "vfs/queue-set-expiry", parameters, expected_pid=pid)
 
 
 if __name__ == "__main__":
