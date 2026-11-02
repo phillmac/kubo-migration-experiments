@@ -410,6 +410,9 @@ def mount_rows(text: str) -> list[dict]:
 
 def mount_command(profile: Profile) -> list[str]:
     p = get_profile(profile)
+    # Server modtime avoids S3 custom-mtime HEADs during full-clone SST stat checks.
+    # Existing admission journals intentionally refuse this changed unit digest;
+    # deployment needs a reviewed clean-stop transition, never implicit readmission.
     return [
         str(RCLONE), "mount", p.remote, str(p.mountpoint),
         "--config", str(CONFIG), "--cache-dir", str(p.cache),
@@ -420,7 +423,7 @@ def mount_command(profile: Profile) -> list[str]:
         "--umask", "077", "--dir-perms", "0700", "--file-perms", "0600",
         "--default-permissions", "--rc", "--rc-addr", "unix://" + str(p.rc_socket),
         "--rc-no-auth", "--log-level", "ERROR",
-    ]
+    ] + (["--use-server-modtime"] if p.name == "full-clone" else [])
 
 
 def render_unit(profile: Profile) -> str:
@@ -497,7 +500,7 @@ class RealHost:
             self.dependencies()
         fields = (
             "Id,LoadState,ActiveState,SubState,User,Group,MainPID,ControlGroup,"
-            "FragmentPath,DropInPaths,NeedDaemonReload"
+            "FragmentPath,DropInPaths,NeedDaemonReload,Result,ExecMainCode,ExecMainStatus"
         )
         output = self.run([self.systemctl, "show", name, f"--property={fields}"])
         values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
@@ -903,15 +906,15 @@ class RealHost:
         while time.monotonic() < deadline:
             state = self.service(p.unit)
             if state.get("ActiveState") == "inactive":
-                require(state.get("SubState") == "dead", "lab service did not exit cleanly")
-                outcome = self.run([
-                    self.systemctl, "show", p.unit,
-                    "--property=Result,ExecMainCode,ExecMainStatus",
-                ])
-                values = dict(line.split("=", 1) for line in outcome.splitlines() if "=" in line)
-                require(values.get("Result") == "success"
-                        and values.get("ExecMainCode") == "1"
-                        and values.get("ExecMainStatus") == "0", "lab process exit failed")
+                require(state.get("SubState") == "dead" and state.get("MainPID") == "0",
+                        "lab service did not exit cleanly")
+                # Code 0 means no retained wait status, not a literal normal exit.
+                # It is accepted only after acknowledged quit, a clean queue,
+                # this successful inactive observation, and final identity/unmount checks.
+                require(state.get("Result") == "success"
+                        and state.get("ExecMainCode") in ("0", "1")
+                        and state.get("ExecMainStatus") == "0", "lab process exit failed")
+                self.unit_identity(p, state, active=False)
                 break
             require(state.get("ActiveState") in ("active", "deactivating"),
                     "lab service failed during graceful quit")
@@ -921,6 +924,8 @@ class RealHost:
         rows = mount_rows(Path("/proc/self/mountinfo").read_text())
         require(not any(r["target"] == str(p.mountpoint) for r in rows),
                 "lab mount remains after stop")
+        require(not p.rc_socket.exists() and not p.rc_socket.is_symlink(),
+                "RC socket remains after stop")
         # Never remove cache, force unmount, discard writes, or expedite uploads.
 
 

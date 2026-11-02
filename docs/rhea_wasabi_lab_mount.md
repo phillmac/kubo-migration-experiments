@@ -39,6 +39,11 @@ queue-expiry changes retain the identity checks without this admission floor, so
 low-space or out-of-space conditions can still be diagnosed and drained. An independent migration controller
 would still need write budgets, backlog limits, and ongoing disk monitoring.
 
+The full-clone mount alone uses `--use-server-modtime`. This uses S3's server
+modification time and avoids a custom-mtime HEAD request for every SST stat
+during Pebble's consistency check. It does not bypass Pebble's file-existence or
+size checks. The resume-fixture command is unchanged.
+
 The only permitted credential source is the root-owned, mode-0600 file:
 
 ```text
@@ -109,6 +114,15 @@ root-protected Unix RC socket and waits for service exit and unmount. It does no
 use `systemctl stop`. Resolve an upload failure using a separately reviewed
 recovery procedure, then inspect status again. The persistent cache is
 retained after a clean stop and must not be removed to make a refusal disappear.
+
+The final service observation reads active/substate, MainPID, Result, and exit
+fields together. Clean shutdown requires `inactive/dead`, `MainPID=0`,
+`Result=success`, `ExecMainStatus=0`, the exact bound unit, and no remaining mount
+or RC socket. `ExecMainCode=1` is a retained normal-exit result; `ExecMainCode=0`
+means no wait status is retained (for example after manager cleanup), **not** a
+literal normal-exit assertion. Zero is accepted only with the preceding
+acknowledged `core/quit(0)` and clean-queue/user checks plus all final conditions.
+Signal, failed, nonzero-status, unknown-code, or still-running outcomes are refused.
 
 ### Selected closed-file queue expiry
 
@@ -275,6 +289,19 @@ The wrapper does not upload objects, repair a ledger, change versioning, or
 restore S3 versions during preflight.
 
 ## Trusted local staging gate
+
+An already admitted full-clone deployment needs a reviewed one-time transition
+when adding `--use-server-modtime`, because the rendered unit digest changes.
+Close all Pebble clients, verify no pending/in-progress/errored writes and no
+out-of-space condition, and cleanly stop/unmount using the existing wrapper and
+its exact previously admitted unit. Under that wrapper's writer lock, verify the
+old journal's `unit_sha256` against the known old unit before deploying the
+reviewed replacement. Preserve protected backups and a transition receipt;
+change only the journal's `unit_sha256` binding alongside the reviewed unit/code.
+Keep every other admission field and the persistent cache unchanged. Stop on
+unexpected state or digest mismatch. The wrapper neither performs this
+transition automatically nor provides a general reconfiguration/readmission
+command; an active or dirty mount is not eligible for the transition.
 
 The following are installation instructions for a separately authorized live
 operator; they were not executed while authoring or testing this change. First

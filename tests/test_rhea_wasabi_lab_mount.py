@@ -513,6 +513,8 @@ class UnitTests(unittest.TestCase):
                 self.assertIn("unix://" + str(profile.rc_socket), command)
                 self.assertIn(str(profile.cache), command)
                 self.assertIn(str(m.CONFIG), command)
+                self.assertEqual(command.count("--use-server-modtime"), int(profile.name == "full-clone"))
+                self.assertEqual(unit.count("--use-server-modtime"), int(profile.name == "full-clone"))
                 for setting in (
                     "Type=simple", "User=root", "Group=root", "UMask=0077", "Restart=no",
                     "MemoryMax=", "MemorySwapMax=0", "TasksMax=128", "CPUQuota=200%",
@@ -1002,10 +1004,11 @@ class RheaCompatibilityTests(unittest.TestCase):
         with patch.object(host, "no_open_users") as users, patch.object(
             host, "observe", return_value=clean_observation(profile)
         ), patch.object(host, "rc", return_value={}) as rc, patch.object(
-            host, "service", return_value={"ActiveState": "inactive", "SubState": "dead"}
-        ), patch.object(
-            host, "run", return_value="Result=success\nExecMainCode=1\nExecMainStatus=0\n"
-        ) as run, patch.object(Path, "read_text", return_value=""):
+            host, "service", return_value={"ActiveState": "inactive", "SubState": "dead", "MainPID": "0",
+                                           "Result": "success", "ExecMainCode": "1", "ExecMainStatus": "0"}
+        ), patch.object(host, "unit_identity"), patch.object(host, "run") as run, patch.object(
+            Path, "read_text", return_value=""
+        ), patch.object(Path, "exists", return_value=False), patch.object(Path, "is_symlink", return_value=False):
             host.halt(profile)
         users.assert_called_once_with(profile)
         rc.assert_called_once_with(profile, "core/quit", {"exitCode": 0})
@@ -1058,17 +1061,70 @@ class CompatibilityTests(LocalHostTests):
 
     def test_halt_uses_authenticated_graceful_quit_and_checks_exit(self):
         self.host.systemctl = "/offline/systemctl"
-        outcome = "Result=success\nExecMainCode=1\nExecMainStatus=0\n"
+        outcome = {"ActiveState": "inactive", "SubState": "dead", "MainPID": "0",
+                   "Result": "success", "ExecMainCode": "1", "ExecMainStatus": "0"}
         with patch.object(self.host, "no_open_users"), patch.object(
             self.host, "observe", return_value=clean_observation(self.profile)
         ), patch.object(self.host, "rc", return_value={}) as rc, patch.object(
-            self.host, "service", return_value={"ActiveState": "inactive", "SubState": "dead"}
-        ), patch.object(self.host, "run", return_value=outcome) as run, patch.object(
+            self.host, "service", return_value=outcome
+        ), patch.object(self.host, "unit_identity") as identity, patch.object(self.host, "run") as run, patch.object(
             Path, "read_text", return_value=""
-        ):
+        ), patch.object(Path, "exists", return_value=False), patch.object(Path, "is_symlink", return_value=False):
             self.host.halt(self.profile)
             rc.assert_called_once_with(self.profile, "core/quit", {"exitCode": 0})
-            self.assertEqual(run.call_args.args[0][1], "show")
+            identity.assert_called_once_with(self.profile, outcome, active=False)
+            run.assert_not_called()  # No separate exit-status observation can race manager GC.
+
+
+class CleanStopOutcomeTests(unittest.TestCase):
+    def setUp(self):
+        self.host = m.RealHost()
+        self.host.systemctl = "/offline/systemctl"
+        self.profile = m.PROFILES["full-clone"]
+        self.state = {
+            "Id": self.profile.unit, "LoadState": "loaded", "ActiveState": "inactive", "SubState": "dead",
+            "MainPID": "0", "Result": "success", "ExecMainCode": "0", "ExecMainStatus": "0",
+            "FragmentPath": str(m.UNIT_DIR / self.profile.unit), "DropInPaths": "", "NeedDaemonReload": "no",
+        }
+
+    @contextmanager
+    def stopped_host(self, *, socket_present=False, mounted=False):
+        output = "".join(f"{key}={value}\n" for key, value in self.state.items())
+        mountinfo = (f"100 99 0:42 / {self.profile.mountpoint} rw - fuse.rclone {self.profile.remote} rw\n"
+                     if mounted else "")
+        with patch.object(self.host, "no_open_users"), patch.object(
+            self.host, "observe", return_value=clean_observation(self.profile)
+        ), patch.object(self.host, "rc", return_value={}) as rc, patch.object(
+            self.host, "run", return_value=output
+        ) as run, patch.object(m, "read_protected", return_value=m.render_unit(self.profile).encode()), patch.object(
+            Path, "read_text", return_value=mountinfo
+        ), patch.object(Path, "exists", return_value=socket_present), patch.object(Path, "is_symlink", return_value=False):
+            yield run, rc
+
+    def test_retained_normal_exit_and_observed_cleared_status_both_use_one_observation(self):
+        for code in ("0", "1"):
+            self.state["ExecMainCode"] = code
+            with self.subTest(code=code), self.stopped_host() as (run, rc):
+                self.host.halt(self.profile)
+                rc.assert_called_once_with(self.profile, "core/quit", {"exitCode": 0})
+                run.assert_called_once()
+                fields = run.call_args.args[0][-1]
+                for field in ("MainPID", "ActiveState", "SubState", "Result", "ExecMainCode", "ExecMainStatus"):
+                    self.assertIn(field, fields)
+
+    def test_failed_signal_nonzero_unknown_or_live_pid_outcomes_refused(self):
+        baseline = dict(self.state)
+        for changed in ({"Result": "signal"}, {"Result": "exit-code"}, {"ExecMainCode": "2"},
+                        {"ExecMainCode": "3"}, {"ExecMainCode": ""}, {"ExecMainStatus": "1"},
+                        {"MainPID": "123"}, {"FragmentPath": "/etc/systemd/system/substituted.service"}):
+            self.state = dict(baseline, **changed)
+            with self.subTest(changed=changed), self.stopped_host(), self.assertRaises(m.Refusal):
+                self.host.halt(self.profile)
+
+    def test_successful_zero_status_still_requires_socket_and_mount_gone(self):
+        for changed in ({"socket_present": True}, {"mounted": True}):
+            with self.subTest(changed=changed), self.stopped_host(**changed), self.assertRaises(m.Refusal):
+                self.host.halt(self.profile)
 
 
 class AdmissionJournalTests(unittest.TestCase):
