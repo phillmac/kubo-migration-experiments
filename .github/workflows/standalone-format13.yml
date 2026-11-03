@@ -8,6 +8,10 @@ on:
     paths:
       - 'cmd/pebble-format-v1/**'
       - 'scripts/test_standalone_pebble_format13.py'
+      - 'scripts/run_rhea_full_clone_steps.py'
+      - 'scripts/verify_rhea_full_clone.py'
+      - 'tests/test_run_rhea_full_clone_steps.py'
+      - 'tests/test_verify_rhea_full_clone.py'
       - '.github/workflows/standalone-format13.yml'
   workflow_dispatch:
 
@@ -45,6 +49,28 @@ jobs:
           gofmt -w main.go
           go build -trimpath -o "$base/pebble-format-v1" .
           sha256sum "$base/pebble-format-v1" | tee "$base/standalone.sha256"
+      - name: Unit-test and compile the guarded full-clone command with the exact picker adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          cd cmd/pebble-format-v1
+          go mod download github.com/cockroachdb/pebble@v1.1.3
+          go mod verify
+          original="$(go env GOMODCACHE)/github.com/cockroachdb/pebble@v1.1.3"
+          copied="$LAB_BASE/pebble-v1.1.3-realstep"
+          test -f "$original/format_major_version.go"
+          cp -a "$original" "$copied"
+          chmod -R u+w "$copied"
+          cp patches/demo_single_rewrite.go "$copied/demo_single_rewrite.go"
+          gofmt -w "$copied/demo_single_rewrite.go"
+          go mod edit -replace "github.com/cockroachdb/pebble=$copied"
+          go mod tidy
+          # Includes the in-memory authoritative-picker and I/O-budget tests.
+          # The fixed host command is compiled, never invoked against a database.
+          go test -count=1 ./realstep ./reallab ./demo
+          go build -trimpath -o "$LAB_BASE/realstep" ./realstep
+          sha256sum "$LAB_BASE/realstep" | tee "$LAB_BASE/realstep.sha256"
       - name: Verify official Kubo 0.31 and 0.43 release binaries
         shell: bash
         run: |
@@ -93,6 +119,7 @@ jobs:
           path: |
             ${{ runner.temp }}/kubo-scratch-*/kubo-lab-*/evidence/*.json
             ${{ runner.temp }}/kubo-scratch-*/standalone.sha256
+            ${{ runner.temp }}/kubo-scratch-*/realstep.sha256
             ${{ runner.temp }}/kubo-scratch-*/bin/*/binary.sha256
           if-no-files-found: warn
           retention-days: 14
