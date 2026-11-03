@@ -143,6 +143,64 @@ the controller does not enter its potentially blocking rewrite migration.
 and any budget-stop sentinel. The mount wrapper's own `status` remains the
 independent lifecycle diagnostic if controller deployment inputs are unavailable.
 
+## Optional tail warmup at format 007
+
+After `ratchet7` has a durable certificate and before `ratchet10`,
+`scripts/warm_rhea_full_clone_tails.py` can warm table metadata tails through the
+fixed full-clone FUSE mount. It requires certified format **007**, zero marked
+files, no unfinished stage, and a clean upload queue. It holds the existing
+writer lock and verifies the exact certified MANIFEST inventory and metadata,
+with matching read-only Go inspections before and after the reads.
+
+Install the reviewed helper as a root-owned mode-0600 file in the trusted
+directory. Its separate mode-0600 `warm-rhea-full-clone-tails-pins.json` contains:
+
+```json
+{
+  "schema": 1,
+  "helper_sha256": "fde9970bdde3659027a05bccef5176c8f0ecef313462fa2b6d4fb6129f1564d9"
+}
+```
+
+The helper also checks its fixed controller source pin and the controller's
+existing deployment pins. The controller pins and migration journal stay intact.
+
+First run the deterministic 128-file pilot, spread across occupied levels:
+
+```console
+sudo python3 /root/.local/share/rhea-wasabi-lab-admin-20261101/warm_rhea_full_clone_tails.py
+```
+
+Review its successful receipt, timing, and before/after health observations.
+Then explicitly request the full inventory if the pilot supports proceeding:
+
+```console
+sudo python3 /root/.local/share/rhea-wasabi-lab-admin-20261101/warm_rhea_full_clone_tails.py --all
+```
+
+These helper commands perform reads immediately; they have no `--apply` mode.
+Eight workers keep at most eight reads outstanding. Each uses
+`O_RDONLY | O_NOFOLLOW` and `pread` for the last `min(64 KiB, certified size)`
+bytes. The pilot requests at most **8 MiB**; the full inventory is bounded by
+**93,697 files and 6,140,526,592 requested tail bytes (5.718811 GiB)**. These are
+logical tail-read bounds, excluding metadata inspection and filesystem/network
+overhead.
+
+Every five seconds the helper checks queue cleanliness, rclone PID, and free/cache
+telemetry, requiring 8 GiB of observed headroom beyond the 2 TiB free-space floor
+and below the 96 GiB cache allowance. Cache accounting has the cleaner lag
+described below. A failure stops new submissions and waits for existing reads.
+The helper neither advances the database format nor directly writes or purges
+cache files.
+
+The printed result identifies a protected receipt under
+`full-clone-steps/warmups/pilot-<time>-<pid>.json` or
+`full-clone-steps/warmups/full-<time>-<pid>.json` in the trusted directory.
+Receipts retain the checkpoint/MANIFEST bindings, selection digest, requested and
+completed bytes, per-level counts, timing, health observations, inspection
+reports, and any failure. Preserve the pilot receipt alongside the full-run
+receipt before proceeding to `ratchet10`.
+
 ## Independent limits
 
 | Limit | Value and enforcement |
