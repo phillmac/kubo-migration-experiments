@@ -10,8 +10,10 @@ on:
       - 'scripts/test_standalone_pebble_format13.py'
       - 'scripts/run_rhea_full_clone_steps.py'
       - 'scripts/verify_rhea_full_clone.py'
+      - 'scripts/warm_rhea_full_clone_tails.py'
       - 'tests/test_run_rhea_full_clone_steps.py'
       - 'tests/test_verify_rhea_full_clone.py'
+      - 'tests/test_warm_rhea_full_clone_tails.py'
       - '.github/workflows/standalone-format13.yml'
   workflow_dispatch:
 

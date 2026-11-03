@@ -25,7 +25,7 @@ import types
 
 TRUST = Path("/root/.local/share/rhea-wasabi-lab-admin-20261101")
 WRAPPER = TRUST / "rhea_wasabi_lab_mount.py"
-WRAPPER_SHA256 = "75c908c6ffb154264905f858f8b26e0fa7ab9fd22cd1dd75914918257ec5628d"
+WRAPPER_SHA256 = "76635430d99daa65a816dc1ae444145bbdfe844559b4b4bed2e30fbae0302545"
 TOOL = TRUST / "realstep"
 VERIFIER = TRUST / "verify_rhea_full_clone.py"
 PINS = TRUST / "full-clone-step-pins.json"

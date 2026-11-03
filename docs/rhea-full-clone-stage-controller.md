@@ -4,8 +4,9 @@
 disposable Rhea clone from its certified format-003 checkpoint through deliberate
 preparatory stages and **one** bounded marked SST rewrite. It does not start or
 stop services, run Kubo, touch the production bucket, remove a cache, retry a
-writer, or expose format-14 finalization. The original scratch stepper and mount
-wrapper are unchanged.
+writer, or expose format-14 finalization. The original scratch stepper is
+unchanged. The full-clone mount uses the reviewed directory-cache setting
+described below.
 
 ## Fixed inputs and deployment
 
@@ -24,7 +25,7 @@ Install reviewed, root-owned copies under
 - the existing `rhea_wasabi_lab_mount.py` and `verify_rhea_lab_format3.py`
 
 The controller pins wrapper SHA-256
-`75c908c6ffb154264905f858f8b26e0fa7ab9fd22cd1dd75914918257ec5628d`.
+`76635430d99daa65a816dc1ae444145bbdfe844559b4b4bed2e30fbae0302545`.
 The generic verifier separately pins the previously certified MANIFEST decoder.
 The controller must execute from its fixed trusted installation, and every
 dependency must pass the protected-path checks. It accepts no alternate host,
@@ -94,7 +95,7 @@ database. These commands never invoke the fixed-host command against a database.
 For the first installation, hold the existing
 `/run/rhea-wasabi-lab/writer.lock` and require no running `realstep` process.
 Atomically install the reviewed controller and verifier as root-owned mode-0600
-files and the built `realstep` as a root-owned mode-0500 file in the fixed trusted
+files and the built `realstep` as a root-owned mode-0700 file in the fixed trusted
 directory. Preserve the existing wrapper, decoder, certified seed, admission
 journal, and cache. Install the mode-0600 pins file last, with the hashes of the
 exact installed bytes; fsync the files and trusted directory before releasing
@@ -108,6 +109,44 @@ walker remain inactive and production rclone remains active. The controller
 uses the same hostname rule as the wrapper. It creates its own state journal at
 `full-clone-steps/state.json` only when a stage is applied; it does not treat the
 reader-active/writer-inactive state as writable admission.
+
+### Reviewed transition to a 12-hour directory cache
+
+The full-clone unit adds only `--dir-cache-time 12h` to its existing command.
+This prevents repeated five-minute directory-cache expiry during long guarded
+operations; a cold listing can hold rclone's directory mutex beyond the RC
+timeout. The resume-fixture profile, writeback, cache budget, resource limits,
+RC timeout, and Go guards are unchanged. Complete an initial synchronous
+enumeration of the closed database metadata after remounting before starting a
+monitored Go operation; the new setting does not remove the first cold listing.
+
+An existing deployment must be transitioned while the writable mount is cleanly
+stopped, using the old trusted wrapper and its writer lock. Require no Pebble
+clients, a clean queue before stop, no mount/socket afterward, no unfinished
+controller stage, and exact matches to the old admitted unit and bound sources.
+Persist protected backups and a transition intent with the old/new digests
+before replacing any bound file. Update only these binding fields alongside
+the reviewed unit and source files:
+
+| Protected record | Fields changed |
+| --- | --- |
+| `admissions/full-clone.json` | `unit_sha256` |
+| `full-clone-steps/state.json` | `binding.wrapper_sha256`, `binding.controller_sha256` |
+| `full-clone-step-pins.json` | `controller_sha256` |
+| `warm-rhea-full-clone-tails-pins.json` | `helper_sha256` |
+
+Preserve every other admission field, the cache, existing checkpoint and evidence,
+generation, rewrite count, and absent pending stage. The Go binary and verifier
+pins remain unchanged. The helper's embedded controller hash changes with the
+controller; its reviewed warmup scheduling behavior stays intact. Install the
+pins last, fsync all replaced files and their directory entries, and retain a
+receipt proving the exact old/new bindings before releasing the lock. An
+unexpected digest or state prevents the transition; no general reconfiguration
+or readmission bypass is exposed.
+
+The historical format3 verifier file remains unchanged as the generic verifier's
+pinned pure MANIFEST decoder. Its original standalone CLI wrapper pin is not
+updated or used for this transition.
 
 ## Explicit commands
 
@@ -158,7 +197,7 @@ directory. Its separate mode-0600 `warm-rhea-full-clone-tails-pins.json` contain
 ```json
 {
   "schema": 1,
-  "helper_sha256": "fde9970bdde3659027a05bccef5176c8f0ecef313462fa2b6d4fb6129f1564d9"
+  "helper_sha256": "7fbf8acf9454ff9bfda7ab133e93e64b554bbd74856077dd87d00bb3761eb926"
 }
 ```
 
@@ -186,20 +225,30 @@ bytes. The pilot requests at most **8 MiB**; the full inventory is bounded by
 logical tail-read bounds, excluding metadata inspection and filesystem/network
 overhead.
 
-Every five seconds the helper checks queue cleanliness, rclone PID, and free/cache
-telemetry, requiring 8 GiB of observed headroom beyond the 2 TiB free-space floor
-and below the 96 GiB cache allowance. Cache accounting has the cleaner lag
-described below. A failure stops new submissions and waits for existing reads.
-The helper neither advances the database format nor directly writes or purges
-cache files.
+Each authenticated health observation admits at most **128 tails / 8 MiB**. New
+submissions stop after **five seconds**, or at that file/byte bound, and all
+outstanding reads finish before the next RC observation. This avoids calling
+rclone's statistics endpoint while a cold FUSE directory lookup holds its
+directory mutex. The existing authenticated RC path and its timeout stay intact.
+
+While reads drain, the helper checks the local cache filesystem with `statvfs`
+every **one second**, independently of rclone. Observations require a clean
+queue, the pinned rclone PID, and 8 GiB of observed headroom beyond the 2 TiB
+free-space floor and below the 96 GiB cache allowance. Cache accounting has the
+cleaner lag described below. A read or health failure, or **120 seconds without
+a successful authenticated observation**, permanently stops submissions for
+that run. Existing read-only calls still finish; they are neither retried nor
+cancelled. The 120-second rule is an admission/failure limit, not a promise to
+interrupt a blocked `pread` or finish the process within that time. The helper
+neither advances the database format nor directly writes or purges cache files.
 
 The printed result identifies a protected receipt under
 `full-clone-steps/warmups/pilot-<time>-<pid>.json` or
 `full-clone-steps/warmups/full-<time>-<pid>.json` in the trusted directory.
 Receipts retain the checkpoint/MANIFEST bindings, selection digest, requested and
 completed bytes, per-level counts, timing, health observations, inspection
-reports, and any failure. Preserve the pilot receipt alongside the full-run
-receipt before proceeding to `ratchet10`.
+reports, maximum observation gaps and drain durations, and any failure. Preserve the
+pilot receipt alongside the full-run receipt before proceeding to `ratchet10`.
 
 ## Independent limits
 
@@ -337,6 +386,7 @@ copy old files over an unreconciled mixed-format directory.
 
 ```console
 python3 -m unittest discover -s tests -p 'test_run_rhea_full_clone_steps.py' -v
+python3 -m unittest discover -s tests -p 'test_warm_rhea_full_clone_tails.py' -v
 python3 -m unittest discover -s tests
 ```
 
@@ -350,4 +400,5 @@ The existing `standalone-format13.yml` workflow discovers the Python tests and
 also builds a disposable patched Pebble v1.1.3 module, runs
 `go test -count=1 ./realstep ./reallab ./demo`, and compiles `realstep`. Its pull
 request paths cover the new controller, verifier, tests, and all command/adapter
-sources. This adds focused command and adapter coverage to the existing job.
+sources, including the tail warmer and its scheduling regressions. This adds
+focused command and adapter coverage to the existing job.

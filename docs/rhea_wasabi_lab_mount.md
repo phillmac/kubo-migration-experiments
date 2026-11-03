@@ -42,7 +42,13 @@ would still need write budgets, backlog limits, and ongoing disk monitoring.
 The full-clone mount alone uses `--use-server-modtime`. This uses S3's server
 modification time and avoids a custom-mtime HEAD request for every SST stat
 during Pebble's consistency check. It does not bypass Pebble's file-existence or
-size checks. The resume-fixture command is unchanged.
+size checks. The full-clone mount also sets `--dir-cache-time 12h`: a cold
+directory listing can hold rclone's directory mutex long enough to block an RC
+statistics request, so long guarded stages retain the listing across the
+default five-minute expiry boundary. The first cold listing still needs to
+finish before a monitored Go open. RC timeouts, independent S3 verification,
+writeback, cache size, and all resource limits are unchanged. The resume-fixture
+command is unchanged.
 
 The only permitted credential source is the root-owned, mode-0600 file:
 
@@ -291,7 +297,8 @@ restore S3 versions during preflight.
 ## Trusted local staging gate
 
 An already admitted full-clone deployment needs a reviewed one-time transition
-when adding `--use-server-modtime`, because the rendered unit digest changes.
+when adding a fixed unit option such as `--use-server-modtime` or
+`--dir-cache-time 12h`, because the rendered unit digest changes.
 Close all Pebble clients, verify no pending/in-progress/errored writes and no
 out-of-space condition, and cleanly stop/unmount using the existing wrapper and
 its exact previously admitted unit. Under that wrapper's writer lock, verify the
@@ -302,6 +309,13 @@ Keep every other admission field and the persistent cache unchanged. Stop on
 unexpected state or digest mismatch. The wrapper neither performs this
 transition automatically nor provides a general reconfiguration/readmission
 command; an active or dirty mount is not eligible for the transition.
+
+When the stage controller has already recorded progress, the same stopped,
+reviewed transition must also update its bound wrapper/controller source hashes
+and deployment pins. Preserve its certified checkpoint, generation, rewrite
+count, and absent pending stage. The exact fields and installation ordering are
+described in `rhea-full-clone-stage-controller.md`; this is not a new admission
+or a reset of migration progress.
 
 The following are installation instructions for a separately authorized live
 operator; they were not executed while authoring or testing this change. First

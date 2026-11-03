@@ -504,6 +504,21 @@ class LocalHostTests(unittest.TestCase):
 
 
 class UnitTests(unittest.TestCase):
+    def test_twelve_hour_directory_cache_changes_only_the_full_clone_unit(self):
+        profile = m.PROFILES["full-clone"]
+        command = m.mount_command(profile)
+        unit = m.render_unit(profile)
+        self.assertEqual(command.count("--dir-cache-time"), 1)
+        self.assertEqual(command[command.index("--dir-cache-time") + 1], "12h")
+        self.assertEqual(unit.count(" --dir-cache-time 12h"), 1)
+        previous = unit.replace(" --dir-cache-time 12h", "", 1)
+        self.assertEqual(hashlib.sha256(previous.encode()).hexdigest(),
+                         "edaecb5c5a6db1254151b252ed9a9b11c982979e769da0f5ea92be0fffeac112")
+        fixture = m.PROFILES["resume-fixture"]
+        self.assertNotIn("--dir-cache-time", m.mount_command(fixture))
+        self.assertEqual(hashlib.sha256(m.render_unit(fixture).encode()).hexdigest(),
+                         "9bfd93244d55fb873855f0338ed5b57754db06d8049183c77167ee387be52b54")
+
     def test_fixed_commands_root_privacy_resources_and_host_visibility(self):
         for profile in m.PROFILES.values():
             with self.subTest(profile=profile.name):

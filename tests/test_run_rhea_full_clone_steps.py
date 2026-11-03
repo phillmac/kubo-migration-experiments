@@ -1,6 +1,7 @@
 """Offline controller, budget, and durable-progress regressions; no live services."""
 import copy
 from contextlib import contextmanager, nullcontext
+import hashlib
 import importlib.util
 import json
 import os
@@ -63,6 +64,10 @@ def observation():
 
 
 class ValidationTests(unittest.TestCase):
+    def test_wrapper_source_pin_matches_the_reviewed_dependency(self):
+        source = SOURCE.with_name("rhea_wasabi_lab_mount.py").read_bytes()
+        self.assertEqual(hashlib.sha256(source).hexdigest(), m.WRAPPER_SHA256)
+
     def test_metadata_stage_and_single_rewrite_reports(self):
         before = m.checkpoint_state(checkpoint())
         m.validate_result(report("ratchet6", before), "ratchet6", before, None)

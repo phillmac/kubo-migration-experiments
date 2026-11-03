@@ -411,6 +411,7 @@ def mount_rows(text: str) -> list[dict]:
 def mount_command(profile: Profile) -> list[str]:
     p = get_profile(profile)
     # Server modtime avoids S3 custom-mtime HEADs during full-clone SST stat checks.
+    # Keep directory entries for 12h so long full-clone stages do not repeatedly relist.
     # Existing admission journals intentionally refuse this changed unit digest;
     # deployment needs a reviewed clean-stop transition, never implicit readmission.
     return [
@@ -423,7 +424,7 @@ def mount_command(profile: Profile) -> list[str]:
         "--umask", "077", "--dir-perms", "0700", "--file-perms", "0600",
         "--default-permissions", "--rc", "--rc-addr", "unix://" + str(p.rc_socket),
         "--rc-no-auth", "--log-level", "ERROR",
-    ] + (["--use-server-modtime"] if p.name == "full-clone" else [])
+    ] + (["--use-server-modtime", "--dir-cache-time", "12h"] if p.name == "full-clone" else [])
 
 
 def render_unit(profile: Profile) -> str:

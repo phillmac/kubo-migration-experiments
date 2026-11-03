@@ -24,7 +24,7 @@ TRUST = Path("/root/.local/share/rhea-wasabi-lab-admin-20261101")
 INSTALLED = TRUST / "warm_rhea_full_clone_tails.py"
 PINS = TRUST / "warm-rhea-full-clone-tails-pins.json"
 CONTROLLER = TRUST / "run_rhea_full_clone_steps.py"
-CONTROLLER_SHA256 = "7d5262f1965c1a4fc19be1d5d245fd58c346bb137aaac30d622326d65db11aff"
+CONTROLLER_SHA256 = "2a8b075e12bb467dc83941a9314343362d21a2776123763b6a0ffa9211701860"
 TAIL_BYTES = 64 * 1024
 MAX_FILES = 93_697
 MAX_REQUESTED_BYTES = MAX_FILES * TAIL_BYTES
@@ -32,7 +32,11 @@ PILOT_FILES = 128
 WORKERS = 8
 MAX_PENDING = 8
 HEADROOM = 8 * 1024**3
-MONITOR_INTERVAL = 5
+MAX_WINDOW_FILES = 128
+MAX_WINDOW_BYTES = MAX_WINDOW_FILES * TAIL_BYTES
+SUBMISSION_SECONDS = 5
+FREE_CHECK_SECONDS = 1
+MAX_UNOBSERVED_SECONDS = 120
 SST_NAME = re.compile(r"[0-9]{6,20}\.sst")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 
@@ -159,18 +163,28 @@ def read_tail(directory_fd: int, row: dict) -> dict:
             "read_bytes": read_bytes, "seconds": time.monotonic() - started}
 
 
+def sample_free_space(module, runtime, summary: dict) -> int:
+    """Check the local cache filesystem without depending on rclone's locks."""
+    free = runtime.free_bytes()
+    require(type(free) is int and free >= 0, "invalid cache-filesystem free-space observation")
+    summary["free_space_samples"] = summary.get("free_space_samples", 0) + 1
+    summary["last_free_bytes"] = free
+    summary["last_free_unix"] = time.time()
+    summary["minimum_free_bytes"] = min(summary.get("minimum_free_bytes", free), free)
+    require(free >= module.MIN_FREE + HEADROOM, "tail warmup requires 8 GiB beyond the free-space floor")
+    return free
+
+
 def sample_health(module, runtime, summary: dict) -> dict:
     observation = runtime.observe()
-    free = runtime.free_bytes()
+    free = sample_free_space(module, runtime, summary)
     module.health(observation, free)
     runtime.wrapper.clean_queue(observation["stats"], observation["queue"])
     used = observation["stats"]["diskCache"]["bytesUsed"]
-    require(free >= module.MIN_FREE + HEADROOM, "tail warmup requires 8 GiB beyond the free-space floor")
     require(used <= module.MAX_CACHE - HEADROOM, "tail warmup requires 8 GiB cache headroom")
     now = time.time()
     summary["samples"] += 1
     summary["last_unix"] = now
-    summary["minimum_free_bytes"] = min(summary.get("minimum_free_bytes", free), free)
     summary["maximum_reported_cache_bytes"] = max(summary.get("maximum_reported_cache_bytes", used), used)
     return {"observed_unix": now, "free_bytes": free, "observation": observation}
 
@@ -181,47 +195,109 @@ def safe_error(module, runtime, exc) -> str:
 
 
 def warm_selected(module, runtime, rows, receipt, receipt_path, directory_fd):
-    """At most eight in-flight reads; a failure stops submissions and awaits them."""
+    """Bound reads between authenticated observations; observe only after draining.
+
+    A cold FUSE lookup may hold rclone's directory mutex longer than its RC
+    timeout. Local statvfs checks remain independent while those reads finish.
+    A stale observation stops admission, but does not cancel a blocking pread.
+    """
     progress = receipt["progress"]
+    monitor = receipt["monitor"]
     started = time.monotonic()
-    next_monitor = started
+    last_healthy = None
+    next_free_check = started
     cursor = 0
     failure = None
     with ThreadPoolExecutor(max_workers=WORKERS, thread_name_prefix="rhea-tail") as executor:
         pending = {}
-        while pending or (cursor < len(rows) and failure is None):
-            if failure is None and time.monotonic() >= next_monitor:
-                try:
-                    receipt["latest_health"] = sample_health(module, runtime, receipt["monitor"])
-                    progress["elapsed_seconds"] = time.monotonic() - started
-                    runtime.atomic_json(receipt_path, receipt)
-                except Exception as exc:
-                    failure = safe_error(module, runtime, exc)
-                next_monitor = time.monotonic() + MONITOR_INTERVAL
-            while failure is None and cursor < len(rows) and len(pending) < MAX_PENDING:
-                row = rows[cursor]
-                pending[executor.submit(read_tail, directory_fd, row)] = row
-                cursor += 1
-                progress["scheduled_files"] += 1
-                progress["scheduled_bytes"] += row["requested_bytes"]
-            if not pending:
+
+        def observe_quiescent():
+            nonlocal failure, last_healthy, next_free_check
+            require(not pending, "authenticated observation requires all tail reads to finish")
+            try:
+                if last_healthy is not None:
+                    require(time.monotonic() - last_healthy < MAX_UNOBSERVED_SECONDS,
+                            "tail warmup exceeded 120 seconds without authenticated health")
+                receipt["latest_health"] = sample_health(module, runtime, monitor)
+                now = time.monotonic()
+                if last_healthy is not None:
+                    gap = now - last_healthy
+                    monitor["maximum_observation_gap_seconds"] = max(monitor.get("maximum_observation_gap_seconds", 0), gap)
+                    require(gap < MAX_UNOBSERVED_SECONDS,
+                            "tail warmup exceeded 120 seconds without authenticated health")
+                last_healthy = now
+                next_free_check = now + FREE_CHECK_SECONDS
+                progress["elapsed_seconds"] = now - started
+                runtime.atomic_json(receipt_path, receipt)
+            except Exception as exc:
+                failure = failure or safe_error(module, runtime, exc)
+            return failure is None
+
+        while cursor < len(rows) and failure is None:
+            if not observe_quiescent():
                 break
-            done, _ = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
-            for future in done:
-                row = pending.pop(future)
-                try:
-                    result = future.result()
-                    progress["completed_files"] += 1
-                    progress["read_bytes"] += result["read_bytes"]
-                    progress["sum_read_seconds"] += result["seconds"]
-                    progress["maximum_read_seconds"] = max(progress["maximum_read_seconds"], result["seconds"])
-                    if receipt["mode"] == "pilot":
-                        receipt["pilot_results"].append(result)
-                except Exception as exc:
-                    progress["failed_files"] += 1
-                    if len(receipt["read_failures"]) < MAX_PENDING:
-                        receipt["read_failures"].append({"name": row["name"], "error": safe_error(module, runtime, exc)})
-                    failure = failure or safe_error(module, runtime, exc)
+            window_started = last_healthy
+            window_files = window_bytes = 0
+            drain_started = None
+
+            def may_submit():
+                return (failure is None and cursor < len(rows) and window_files < MAX_WINDOW_FILES
+                        and time.monotonic() - window_started < SUBMISSION_SECONDS)
+
+            while pending or may_submit():
+                now = time.monotonic()
+                if now - last_healthy >= MAX_UNOBSERVED_SECONDS:
+                    failure = failure or "tail warmup exceeded 120 seconds without authenticated health"
+                if now >= next_free_check:
+                    try:
+                        sample_free_space(module, runtime, monitor)
+                    except Exception as exc:
+                        failure = failure or safe_error(module, runtime, exc)
+                    next_free_check = now + FREE_CHECK_SECONDS
+                while may_submit() and len(pending) < MAX_PENDING:
+                    row = rows[cursor]
+                    requested = row["requested_bytes"]
+                    require(type(requested) is int and 0 < requested <= TAIL_BYTES
+                            and window_bytes + requested <= MAX_WINDOW_BYTES, "observation-window read bound exceeded")
+                    pending[executor.submit(read_tail, directory_fd, row)] = row
+                    cursor += 1
+                    window_files += 1
+                    window_bytes += requested
+                    progress["scheduled_files"] += 1
+                    progress["scheduled_bytes"] += requested
+                    monitor["maximum_pending_reads"] = max(monitor.get("maximum_pending_reads", 0), len(pending))
+                if pending and not may_submit() and drain_started is None:
+                    drain_started = time.monotonic()
+                if not pending:
+                    break
+                done, _ = wait(pending, timeout=0.5, return_when=FIRST_COMPLETED)
+                for future in done:
+                    row = pending.pop(future)
+                    try:
+                        result = future.result()
+                        progress["completed_files"] += 1
+                        progress["read_bytes"] += result["read_bytes"]
+                        progress["sum_read_seconds"] += result["seconds"]
+                        progress["maximum_read_seconds"] = max(progress["maximum_read_seconds"], result["seconds"])
+                        if receipt["mode"] == "pilot":
+                            receipt["pilot_results"].append(result)
+                    except Exception as exc:
+                        progress["failed_files"] += 1
+                        if len(receipt["read_failures"]) < MAX_PENDING:
+                            receipt["read_failures"].append({"name": row["name"], "error": safe_error(module, runtime, exc)})
+                        failure = failure or safe_error(module, runtime, exc)
+            now = time.monotonic()
+            gap = now - last_healthy
+            monitor["maximum_observation_gap_seconds"] = max(monitor.get("maximum_observation_gap_seconds", 0), gap)
+            monitor["windows"] = monitor.get("windows", 0) + 1
+            monitor["maximum_window_files"] = max(monitor.get("maximum_window_files", 0), window_files)
+            monitor["maximum_window_bytes"] = max(monitor.get("maximum_window_bytes", 0), window_bytes)
+            if drain_started is not None:
+                monitor["maximum_drain_seconds"] = max(monitor.get("maximum_drain_seconds", 0), now - drain_started)
+            if gap >= MAX_UNOBSERVED_SECONDS:
+                failure = failure or "tail warmup exceeded 120 seconds without authenticated health"
+        if failure is None:
+            observe_quiescent()
     progress["elapsed_seconds"] = time.monotonic() - started
     progress["stopped_scheduling"] = failure is not None
     return failure
@@ -251,7 +327,9 @@ def run(module, runtime, helper_sha256, *, all_files=False):
                    "headroom_bytes": HEADROOM, "maximum_files": MAX_FILES,
                    "maximum_requested_bytes": MAX_REQUESTED_BYTES,
                    "read_byte_accounting": "logical bytes returned by completed tail reads; scheduled_bytes also bounds failed reads",
-                   "monitor": {"samples": 0, "poll_seconds": MONITOR_INTERVAL,
+                   "monitor": {"samples": 0, "maximum_window_files_limit": MAX_WINDOW_FILES,
+                               "maximum_window_bytes_limit": MAX_WINDOW_BYTES, "submission_window_seconds": SUBMISSION_SECONDS,
+                               "free_space_check_seconds": FREE_CHECK_SECONDS, "maximum_unobserved_seconds": MAX_UNOBSERVED_SECONDS,
                                "cache_accounting": "rclone cached used-range counter; one-minute cleaner accounting lag"},
                    "progress": {"scheduled_files": 0, "scheduled_bytes": 0, "completed_files": 0,
                                 "read_bytes": 0, "failed_files": 0, "sum_read_seconds": 0,
