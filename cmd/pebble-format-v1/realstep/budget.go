@@ -78,7 +78,9 @@ func (b *budgetFS) Create(name string) (vfs.File, error) {
 	if strings.HasSuffix(name, ".sst") {
 		if _, err := b.FS.Stat(name); err == nil {
 			return nil, errors.New("refuse replacing an existing immutable SST")
-		} else if !os.IsNotExist(err) {
+		} else if !errors.Is(err, os.ErrNotExist) {
+			// vfs.Default adds a stack wrapper to os.Stat errors. Only an
+			// actual not-exist cause permits creation; retain every other error.
 			return nil, err
 		}
 	}

@@ -2,7 +2,10 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/cockroachdb/pebble/vfs"
@@ -18,6 +21,81 @@ func testBudgetFS(t *testing.T, allowSST bool) *budgetFS {
 	b.used.MaxSSTWriteBytes = 8
 	b.used.MaxMetadataWriteBytes = 12
 	return b
+}
+
+func TestSSTCreateOnDefaultFSHandlesWrappedNotExist(t *testing.T) {
+	// vfs.Default adds errors.WithStack to Stat errors. Exercise the same
+	// filesystem adapter as the real command so an absent
+	// output is accepted without allowing replacement or bypassing the budget.
+	dir := t.TempDir()
+	b := newBudgetFS(vfs.Default, dir, true, func(uint64) error { return nil })
+	b.used.MaxSSTWriteBytes = 8
+	name := filepath.Join(dir, "000001.sst")
+	f, err := b.Create(name)
+	if err != nil {
+		t.Fatalf("new SST rejected by default filesystem: %v", err)
+	}
+	if n, err := f.Write([]byte("original")); err != nil || n != 8 {
+		_ = f.Close()
+		t.Fatalf("new SST write: %d %v", n, err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if replacement, err := b.Create(name); err == nil {
+		_ = replacement.Close()
+		t.Fatal("existing immutable SST replacement allowed")
+	}
+	if contents, err := os.ReadFile(name); err != nil || string(contents) != "original" {
+		t.Fatalf("immutable SST contents changed: %q %v", contents, err)
+	}
+	second, err := b.Create(filepath.Join(dir, "000002.sst"))
+	if err != nil {
+		t.Fatalf("second new SST rejected by default filesystem: %v", err)
+	}
+	defer second.Close()
+	if n, err := second.Write([]byte("x")); err == nil || n != 0 {
+		t.Fatalf("new file bypassed exhausted SST budget: %d %v", n, err)
+	}
+	if info, err := second.Stat(); err != nil || info.Size() != 0 {
+		t.Fatalf("blocked write reached default filesystem: %v %v", info, err)
+	}
+	if got := b.report(); got.SSTWriteBytes != 8 || got.MetadataWriteBytes != 0 {
+		t.Fatalf("incorrect default-filesystem accounting: %+v", got)
+	}
+}
+
+type createStatFailureFS struct {
+	vfs.FS
+	statErr     error
+	createCalls int
+}
+
+func (f *createStatFailureFS) Stat(string) (os.FileInfo, error) { return nil, f.statErr }
+
+func (f *createStatFailureFS) Create(name string) (vfs.File, error) {
+	f.createCalls++
+	return f.FS.Create(name)
+}
+
+func TestSSTCreatePreservesWrappedStatFailures(t *testing.T) {
+	b := testBudgetFS(t, true)
+	name := "/lab/pebbleds/000001.sst"
+	blocked := fmt.Errorf("wrapped stat failure: %w", &os.PathError{Op: "stat", Path: name, Err: os.ErrPermission})
+	fs := &createStatFailureFS{FS: b.FS, statErr: blocked}
+	b.FS = fs
+	if f, err := b.Create(name); f != nil || !errors.Is(err, os.ErrPermission) {
+		if f != nil {
+			_ = f.Close()
+		}
+		t.Fatalf("non-ENOENT stat failure was not preserved: %v", err)
+	}
+	if fs.createCalls != 0 {
+		t.Fatal("stat failure reached underlying Create")
+	}
+	if got := b.report(); got.SSTWriteBytes != 0 || got.MetadataWriteBytes != 0 {
+		t.Fatalf("rejected creation consumed a write allowance: %+v", got)
+	}
 }
 
 func TestWriteBudgetsPreventOvershootAcrossFiles(t *testing.T) {
