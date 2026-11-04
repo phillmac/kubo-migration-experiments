@@ -197,6 +197,69 @@ class StageFixture:
             return m.verify_generation(**params)
 
 
+class RepeatedStepFixture(StageFixture):
+    """A second closed step retains the first output and retires another original."""
+
+    def __init__(self):
+        super().__init__()
+        first = self.verify()
+        first.update(generation=5, pebble_reopen_verified=True, reopen={
+            "action": "inspect", "after_format": "013",
+            "sst_files_after": self.report["sst_files_after"],
+            "sst_bytes_after": self.report["sst_bytes_after"],
+            "sst_inventory_sha256_after": self.report["sst_inventory_sha256_after"],
+            "marked_after": self.report["marked_after"],
+        })
+        old_metadata = self.metadata
+        self.previous = first
+        self.before = copy.deepcopy(self.after)
+        self.after = {20: self.before[20], 26: (131, 1, False)}
+        self.old_manifest = first["manifest"]
+        self.old_manifest_marker = first["manifest_marker"]
+        self.old_format_marker = first["format_marker"]
+        self.new_manifest = "MANIFEST-000024"
+        self.new_manifest_marker = "marker.manifest.000003." + self.new_manifest
+        self.new_format_marker = self.old_format_marker
+        self.changed = [self.new_manifest_marker]
+        self.metadata = {
+            "CURRENT": b"MANIFEST-000000\n", "LOCK": b"", "000022.log": b"empty-wal!!",
+            "OPTIONS-000025": b"second options", self.old_manifest: old_metadata[self.old_manifest],
+            self.new_manifest: manifest(self.after, 22), self.new_manifest_marker: b"",
+            self.new_format_marker: b"",
+        }
+        for name in set(old_metadata) - set(self.metadata):
+            self.s3.delete(m.PREFIX + name)
+        for name, data in self.metadata.items():
+            if name in old_metadata and old_metadata[name] == data:
+                continue
+            self.s3.add(m.PREFIX + name, data, "second-" + name)
+        self.s3.delete(m.PREFIX + "000002.sst")
+        pin = self.s3.add(m.PREFIX + "000026.sst", b"d" * 131, "new-sst-26")
+        self.hashes = {"000026.sst": {"size": 131, "sha256": pin["sha256"]}}
+        created, retired = [table_row(26, self.after)], [table_row(2, self.before)]
+        self.report["sst_diff"] = {"created": created, "retired": retired}
+        self.report["io"]["sst_write_bytes"] = 131
+        for suffix, tables in (("before", self.before), ("after", self.after)):
+            self.report["sst_files_" + suffix] = len(tables)
+            self.report["sst_bytes_" + suffix] = sum(row[0] for row in tables.values())
+            self.report["sst_inventory_sha256_" + suffix] = m.base.inventory_digest(inventory(tables))
+            self.report["marked_" + suffix] = sum(row[2] for row in tables.values())
+        candidate = hashlib.sha256(
+            b"pebble-lab-candidate-v1\ninput-level\t1\noutput-level\t1\n2\t200\n").hexdigest()
+        plan = hashlib.sha256(("fullclone-plan-v1\nformat\t013\nmarked\t1\ninventory\t"
+            + self.report["sst_inventory_sha256_before"] + "\ncandidate\t" + candidate + "\n").encode()).hexdigest()
+        self.report["picker_plan"] = {"input_level": 1, "output_level": 1, "input_files": ["000002.sst"],
+            "input_bytes": 200, "candidate_sha256": candidate, "plan_sha256": plan}
+        self.report["expected_plan_sha256"] = plan
+        self.report["compactions"] = [
+            {"type": "begin", "job": 1, "reason": "rewrite"},
+            {"type": "end", "job": 1, "reason": "rewrite", "input": retired,
+             "output": created, "error": "", "milliseconds": 10},
+        ]
+        self.s3.gets.clear()
+        self.s3.heads.clear()
+
+
 class VerificationTests(unittest.TestCase):
     def test_all_preliminary_stages_preserve_exact_sst_versions(self):
         for action in ("ratchet6", "ratchet7", "ratchet10", "ratchet13"):
@@ -399,6 +462,35 @@ class VerificationTests(unittest.TestCase):
         broken = copy.deepcopy(certificate)
         broken["sst_lineage"]["retired"]["000001.sst"]["size"] = 99
         with self.assertRaises(m.VerificationError): m._lineage(broken, baseline)
+
+    def test_second_step_preserves_prior_output_and_cumulative_lineage(self):
+        f = RepeatedStepFixture()
+        previous = copy.deepcopy(f.previous)
+        result = f.verify()
+        self.assertEqual(f.previous, previous)
+        self.assertEqual(result["previous_checkpoint_sha256"], m.canonical_sha256(previous))
+        self.assertEqual(result["sst_lineage"]["rewrite_operations"], 2)
+        self.assertEqual(set(result["sst_lineage"]["created"]), {"000020.sst", "000026.sst"})
+        self.assertEqual(set(result["sst_lineage"]["retired"]), {"000001.sst", "000002.sst"})
+        self.assertEqual(result["sst_lineage"]["created"]["000020.sst"], previous["sst_lineage"]["created"]["000020.sst"])
+        self.assertEqual(set(result["created_sst_versions"]), {"000026.sst"})
+        # The one untouched current SST is prior-created, not an original SST.
+        self.assertEqual(result["unchanged_sst_versions"], 1)
+        self.assertEqual(result["unchanged_sst_payload_bytes_downloaded"], 0)
+        self.assertEqual(result["new_sst_payload_bytes_downloaded"], 131)
+        self.assertEqual(result["marked_after"], 0)
+        self.assertEqual([key for key, _ in f.s3.gets if key.endswith(".sst")], [m.PREFIX + "000026.sst"])
+        for number in (1, 2):
+            self.assertIn((m.PREFIX + f"{number:06d}.sst", f"base-pebbleds/{number:06d}.sst"), f.s3.heads)
+
+    def test_second_step_refuses_changed_prior_created_output(self):
+        for field, value in (("VersionId", "changed-version"), ("ETag", '"changed-etag"'), ("Size", 118)):
+            with self.subTest(field=field):
+                f = RepeatedStepFixture()
+                key = m.PREFIX + "000020.sst"
+                f.s3.latest[key] = dict(f.s3.latest[key], **{field: value})
+                with self.assertRaisesRegex(m.VerificationError, "untouched SST version changed"):
+                    f.verify()
 
     def test_before_marker_report_cannot_become_a_predecessor(self):
         f = StageFixture(mode="before-markers")

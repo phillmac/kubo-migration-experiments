@@ -56,6 +56,9 @@ STAGES = {
     "ratchet10": ("007", "010"), "ratchet13": ("010", "013"),
     "step": ("013", "013"),
 }
+PREPARATORY_STAGES = tuple(action for action in STAGES if action != "step")
+MAX_REWRITES = 5  # The certified first rewrite plus four separately admitted units.
+MAX_GENERATION = len(PREPARATORY_STAGES) + MAX_REWRITES
 PHASES = {"executing", "closed", "flushing", "preverified", "publishing", "verifying"}
 HEX = re.compile(r"[0-9a-f]{64}")
 SST = re.compile(r"[0-9]{6,20}\.sst")
@@ -67,7 +70,7 @@ METADATA = re.compile(
 LIMITS = {"input_bytes": MAX_INPUT, "sst_output_bytes": MAX_OUTPUT,
           "metadata_write_bytes": MAX_METADATA_WRITES, "cache_bytes": MAX_CACHE,
           "minimum_free_bytes": MIN_FREE, "backlog_bytes": MAX_BACKLOG_BYTES,
-          "backlog_files": MAX_BACKLOG_FILES, "maximum_rewrites": 1}
+          "backlog_files": MAX_BACKLOG_FILES, "maximum_rewrites": MAX_REWRITES}
 
 
 class Refusal(RuntimeError):
@@ -109,6 +112,11 @@ def json_object(data: bytes) -> dict:
 def integer(value, message, minimum=0):
     require(type(value) is int and value >= minimum, message)
     return value
+
+
+def stage_action(index: int) -> str:
+    require(type(index) is int and 1 <= index <= MAX_GENERATION, "invalid stage generation")
+    return PREPARATORY_STAGES[index - 1] if index <= len(PREPARATORY_STAGES) else "step"
 
 
 def checkpoint_state(checkpoint: dict) -> dict:
@@ -270,7 +278,8 @@ class Controller:
         with self.runtime.lock():
             state = self.runtime.load_state()
             require(state["pending"] is None, "unfinished stage: reconcile it; never repeat its writer")
-            require(action != "step" or state["rewrites"] == 0, "one real rewrite has already been completed")
+            require(action != "step" or state["rewrites"] < MAX_REWRITES, "real rewrite limit has already been reached")
+            require(action == stage_action(state["generation"] + 1), "stage is out of order")
             expected = checkpoint_state(state["checkpoint"])
             require(expected["format"] == STAGES[action][0], "stage is out of order")
             if action in ("ratchet6", "ratchet7", "ratchet10"):
@@ -476,9 +485,23 @@ class Runtime:
         require(set(state) == {"schema", "binding", "checkpoint", "generation", "rewrites", "pending"}
                 and type(state["schema"]) is int and state["schema"] == 1
                 and state["binding"] == self.binding, "migration journal binding mismatch")
-        require(0 <= integer(state["generation"], "invalid generation") <= len(STAGES)
-                and integer(state["rewrites"], "invalid rewrite count") <= 1, "migration progress exceeds this experiment")
+        generation = integer(state["generation"], "invalid generation")
+        rewrites = integer(state["rewrites"], "invalid rewrite count")
+        require(generation <= MAX_GENERATION and rewrites <= MAX_REWRITES,
+                "migration progress exceeds this experiment")
+        require(rewrites == max(0, generation - len(PREPARATORY_STAGES)),
+                "journal generation and rewrite count disagree")
         prior = checkpoint_state(state["checkpoint"])
+        expected_format = "003" if generation == 0 else STAGES[stage_action(generation)][1]
+        require(prior["format"] == expected_format, "checkpoint format disagrees with journal generation")
+        if generation or "generation" in state["checkpoint"]:
+            require(integer(state["checkpoint"].get("generation"), "invalid checkpoint generation") == generation,
+                    "checkpoint generation disagrees with journal")
+        lineage = state["checkpoint"].get("sst_lineage")
+        require((lineage is None and generation == 0) or
+                (isinstance(lineage, dict) and
+                 integer(lineage.get("rewrite_operations"), "invalid checkpoint rewrite count") == rewrites),
+                "checkpoint lineage and journal rewrite count disagree")
         require(state["checkpoint"].get("pebble_reopen_verified") is True
                 and (state["checkpoint"].get("remote_generation_verified") is True
                      or state["checkpoint"].get("remote_format3_closure_verified") is True),
@@ -488,6 +511,7 @@ class Runtime:
             require(isinstance(pending, dict) and pending.get("action") in STAGES
                     and pending.get("phase") in PHASES and pending.get("index") == state["generation"] + 1,
                     "invalid unfinished stage")
+            require(pending["action"] == stage_action(pending["index"]), "unfinished stage is out of order")
             require(STAGES[pending["action"]][0] == prior["format"]
                     and pending.get("previous_checkpoint_sha256") == digest(state["checkpoint"]),
                     "unfinished stage is bound to a different checkpoint")
@@ -498,8 +522,7 @@ class Runtime:
         self.atomic_json(STATE_ROOT / "state.json", state)
 
     def stage_dir(self, pending):
-        require(pending.get("action") in STAGES and type(pending.get("index")) is int
-                and 1 <= pending["index"] <= len(STAGES), "invalid stage directory identity")
+        require(pending.get("action") == stage_action(pending.get("index")), "invalid stage directory identity")
         return STATE_ROOT / "stages" / f"{pending['index']:06d}-{pending['action']}"
 
     def create_stage(self, pending):

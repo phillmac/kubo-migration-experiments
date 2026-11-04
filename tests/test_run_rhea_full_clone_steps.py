@@ -19,10 +19,21 @@ SPEC.loader.exec_module(m)
 
 
 def checkpoint(fmt="003", marks=0):
-    return {"bucket": m.BUCKET, "prefix": m.PREFIX, "format_major_version": fmt,
-            "marked_files": marks, "sst_count": 93_697, "sst_bytes": 7_786_594_080_785,
-            "sst_inventory_sha256": m.BASELINE_DIGEST, "remote_metadata": {},
-            "remote_format3_closure_verified": True, "pebble_reopen_verified": True}
+    value = {"bucket": m.BUCKET, "prefix": m.PREFIX, "format_major_version": fmt,
+             "marked_files": marks, "sst_count": 93_697, "sst_bytes": 7_786_594_080_785,
+             "sst_inventory_sha256": m.BASELINE_DIGEST, "remote_metadata": {},
+             "pebble_reopen_verified": True}
+    if fmt == "003":
+        value["remote_format3_closure_verified"] = True
+    else:
+        value.update(generation=("006", "007", "010", "013").index(fmt) + 1,
+                     remote_generation_verified=True, sst_lineage={"rewrite_operations": 0})
+    return value
+
+
+def retained_certificate(name):
+    path = SOURCE.parents[1] / "docs/evidence" / f"rhea-full-clone-{name}-20261103.json"
+    return m.json_object(path.read_bytes())
 
 
 def plan():
@@ -164,19 +175,25 @@ class BudgetTests(unittest.TestCase):
 
 class FakeRuntime:
     def __init__(self, fmt="003", marks=0):
+        self.binding = {}
         self.state = {"schema": 1, "binding": {}, "checkpoint": checkpoint(fmt, marks),
-                      "generation": 4 if fmt == "013" else 0, "rewrites": 0, "pending": None}
+                      "generation": 0 if fmt == "003" else checkpoint(fmt, marks)["generation"],
+                      "rewrites": 0, "pending": None}
         self.db = m.checkpoint_state(self.state["checkpoint"])
         self.events = []
         self.failure = None
         self.guard_error = None
         self.alive = False
         self.output = None
+        self.certificates = {}
         self.closed_snapshot = {"CURRENT": b"MANIFEST-000000\n", "marker.format-version.000002.003": b""}
 
     def lock(self): return nullcontext()
-    def load_state(self): return copy.deepcopy(self.state)
+    def load_state(self):
+        m.Runtime.validate_state(self, self.state)
+        return copy.deepcopy(self.state)
     def write_state(self, state):
+        m.Runtime.validate_state(self, state)
         self.state = copy.deepcopy(state)
         self.events.append(("journal", None if state["pending"] is None else state["pending"]["phase"]))
     def create_stage(self, pending): self.events.append(("create", pending["action"]))
@@ -204,11 +221,16 @@ class FakeRuntime:
         state = m.report_state(result, "after")
         return {"bucket": m.BUCKET, "prefix": m.PREFIX, "after_format": state["format"], "marked_after": state["marked"],
                 "sst_count": state["count"], "sst_bytes": state["bytes"], "sst_inventory_sha256": state["inventory"],
-                "remote_generation_verified": mode == "final", "remote_metadata": {}, "changed_markers": []}
+                "remote_generation_verified": mode == "final", "remote_metadata": {}, "changed_markers": [],
+                "sst_lineage": {"rewrite_operations": previous.get("sst_lineage", {}).get("rewrite_operations", 0)
+                                + int(result["action"] == "step")}}
     def publish_markers(self, *args):
         assert self.state["pending"]["before_markers_sha256"] == m.digest(self.state["pending"]["before_markers"])
         self.events.append(("publish",))
-    def save_certificate(self, pending, value): self.events.append(("certificate",)); return value
+    def save_certificate(self, pending, value):
+        self.events.append(("certificate",))
+        self.certificates[pending["index"]] = copy.deepcopy(value)
+        return value
 
 
 class ControllerTests(unittest.TestCase):
@@ -230,13 +252,27 @@ class ControllerTests(unittest.TestCase):
         self.assertIsNone(runtime.state["pending"])
         self.assertEqual(runtime.state["generation"], 1)
 
-    def test_exactly_one_step_and_no_format14_action(self):
-        runtime = FakeRuntime("013", 1)
+    def test_five_explicit_steps_then_sixth_refused_without_replacing_first_checkpoint(self):
+        runtime = FakeRuntime("013", 6)
         controller = m.Controller(runtime)
         self.assertEqual(controller.run("step", apply=True)["rewrites_completed"], 1)
+        original = copy.deepcopy(runtime.certificates[5])
+        for generation in range(6, 10):
+            previous = copy.deepcopy(runtime.state["checkpoint"])
+            result = controller.run("step", apply=True)
+            self.assertEqual(result["rewrites_completed"], generation - 4)
+            self.assertEqual(runtime.state["generation"], generation)
+            self.assertIsNone(runtime.state["pending"])
+            self.assertEqual(result["checkpoint"]["previous_checkpoint_sha256"], m.digest(previous))
+            self.assertEqual(result["checkpoint"]["sst_lineage"]["rewrite_operations"], generation - 4)
+        self.assertEqual(runtime.certificates[5], original)
+        events = copy.deepcopy(runtime.events)
         for action in ("step", "finish", "ratchet14"):
             with self.subTest(action=action), self.assertRaises(m.Refusal): controller.run(action, apply=True)
-        self.assertEqual(sum(event == ("tool", "step") for event in runtime.events), 1)
+        self.assertEqual(runtime.events, events)
+        self.assertEqual(sum(event == ("tool", "step") for event in runtime.events), 5)
+        self.assertEqual(sum(event == ("verify", "before-markers") for event in runtime.events), 5)
+        self.assertEqual(sum(event == ("verify", "final") for event in runtime.events), 5)
 
     def test_dirty_admission_and_out_of_order_stages_never_launch_writer(self):
         runtime = FakeRuntime()
@@ -284,6 +320,27 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(sum(event == ("tool", "ratchet6") for event in runtime.events), 1)
         self.assertEqual(sum(event == ("verify", "before-markers") for event in runtime.events), 1)
 
+    def test_continuation_recovery_commits_generation_six_without_writer_replay(self):
+        runtime = FakeRuntime("013", 5)
+        controller = m.Controller(runtime)
+        controller.run("step", apply=True)
+        original = copy.deepcopy(runtime.certificates[5])
+        runtime.failure = m.Refusal("interrupted parent after second closed rewrite")
+        with self.assertRaises(m.Refusal): controller.run("step", apply=True)
+        self.assertEqual(runtime.state["generation"], 5)
+        self.assertEqual(runtime.state["rewrites"], 1)
+        self.assertEqual(runtime.state["pending"]["index"], 6)
+        with self.assertRaisesRegex(m.Refusal, "unfinished stage"): controller.run("step", apply=True)
+        runtime.failure = None
+        self.assertFalse(controller.recover()["writer_will_be_repeated"])
+        result = controller.recover(apply=True)
+        self.assertEqual(result["rewrites_completed"], 2)
+        self.assertEqual(runtime.state["generation"], 6)
+        self.assertIsNone(runtime.state["pending"])
+        self.assertEqual(runtime.certificates[5], original)
+        self.assertEqual(runtime.state["checkpoint"]["previous_checkpoint_sha256"], m.digest(original))
+        self.assertEqual(sum(event == ("tool", "step") for event in runtime.events), 2)
+
 
 class RuntimeTests(unittest.TestCase):
     @contextmanager
@@ -300,6 +357,63 @@ class RuntimeTests(unittest.TestCase):
             runtime.signal_budget_stop = Mock()
             with patch.object(m, "STATE_ROOT", Path(location) / "state"), patch.object(m, "TRUST", Path(location)):
                 yield runtime
+
+    def test_real_historical_certificates_and_failed_close_bridge_remain_valid(self):
+        runtime = m.Runtime.__new__(m.Runtime)
+        runtime.binding = {"controller_sha256": hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+                           "limits": copy.deepcopy(m.LIMITS)}
+        names = ("format3-certified", "000001-ratchet6", "000002-ratchet7", "000003-ratchet10",
+                 "000004-ratchet13", "failed-close-certified", "000005-step")
+        for name in names:
+            certificate = retained_certificate(name)
+            generation = certificate.get("generation", 0)
+            state = {"schema": 1, "binding": copy.deepcopy(runtime.binding), "checkpoint": certificate,
+                     "generation": generation, "rewrites": max(0, generation - 4), "pending": None}
+            with self.subTest(certificate=name): runtime.validate_state(state)
+
+    def test_progress_lineage_checkpoint_and_expected_binding_mismatches_fail(self):
+        runtime = m.Runtime.__new__(m.Runtime)
+        runtime.binding = {"controller_sha256": hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+                           "limits": copy.deepcopy(m.LIMITS)}
+        original = {"schema": 1, "binding": copy.deepcopy(runtime.binding),
+                    "checkpoint": retained_certificate("000005-step"), "generation": 5, "rewrites": 1, "pending": None}
+        runtime.validate_state(original)
+        changes = (
+            lambda value: value.update(generation=6),
+            lambda value: value.update(rewrites=2),
+            lambda value: value.update(generation=10, rewrites=6),
+            lambda value: value["checkpoint"].update(generation=4),
+            lambda value: value["checkpoint"].update(after_format="010"),
+            lambda value: value["checkpoint"]["sst_lineage"].update(rewrite_operations=0),
+            lambda value: value["checkpoint"]["sst_lineage"].update(rewrite_operations=True),
+            lambda value: value["binding"].update(controller_sha256="2a8b075e12bb467dc83941a9314343362d21a2776123763b6a0ffa9211701860"),
+            lambda value: value["binding"]["limits"].update(maximum_rewrites=1),
+        )
+        for change in changes:
+            value = copy.deepcopy(original)
+            change(value)
+            with self.subTest(state=value), self.assertRaises(m.Refusal): runtime.validate_state(value)
+        for index, action in ((6, "ratchet13"), (7, "step"), (True, "step")):
+            value = copy.deepcopy(original)
+            value["pending"] = {"index": index, "action": action, "phase": "executing",
+                                "previous_checkpoint_sha256": m.digest(value["checkpoint"])}
+            with self.subTest(index=index, action=action), self.assertRaises(m.Refusal): runtime.validate_state(value)
+
+    def test_generation_six_through_nine_paths_preserve_original_checkpoint_and_refuse_replay(self):
+        with self.runtime() as runtime:
+            original = m.STATE_ROOT / "checkpoints/000005-step.json"
+            original.parent.mkdir(mode=0o700, parents=True)
+            raw = m.canonical(retained_certificate("000005-step"))
+            original.write_bytes(raw)
+            for generation in range(6, 10):
+                pending = {"index": generation, "action": "step"}
+                self.assertEqual(runtime.stage_dir(pending).name, f"{generation:06d}-step")
+                runtime.create_stage(pending)
+                with self.assertRaisesRegex(m.Refusal, "refuse writer replay"): runtime.create_stage(pending)
+            for pending in ({"index": 10, "action": "step"}, {"index": 6, "action": "ratchet13"},
+                            {"index": 4, "action": "step"}, {"index": True, "action": "ratchet6"}):
+                with self.subTest(pending=pending), self.assertRaises(m.Refusal): runtime.stage_dir(pending)
+            self.assertEqual(original.read_bytes(), raw)
 
     def test_atomic_evidence_is_private_and_syncs_directories(self):
         with self.runtime() as runtime:

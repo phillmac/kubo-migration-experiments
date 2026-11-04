@@ -2,7 +2,9 @@
 
 `scripts/run_rhea_full_clone_steps.py` coordinates the already admitted,
 disposable Rhea clone from its certified format-003 checkpoint through deliberate
-preparatory stages and **one** bounded marked SST rewrite. It does not start or
+preparatory stages and **one bounded marked rewrite per process**, with at most
+**five successful rewrites total / generation 9**. The current pacing window is
+four additional separately admitted units after certified generation 5. It does not start or
 stop services, run Kubo, touch the production bucket, remove a cache, retry a
 writer, or expose format-14 finalization. The original scratch stepper is
 unchanged. The full-clone mount uses the reviewed directory-cache setting
@@ -102,6 +104,31 @@ exact installed bytes; fsync the files and trusted directory before releasing
 the lock. An existing `full-clone-steps/state.json` must already match those pins;
 changing a bound deployment requires separate reviewed reconciliation.
 
+### Four-unit continuation from certified generation 5
+
+The [4 November pacing plan](rhea-full-clone-pacing-20261104.md) retains the
+existing generation-5 certificate and permits four additional explicit `step`
+invocations, recording generations **6–9** and total successful rewrites **2–5**.
+Each invocation still closes one Go process and independently publishes,
+certifies, and reopens its own generation before another writer is admitted.
+An atomic input unit can contain multiple files; four units do not imply four
+files or a four-file reduction in marked work.
+
+The controller now reconciles journal generation, certificate generation,
+format, and cumulative lineage rewrite count, and enforces the next action and
+stage-directory identity. A reviewed deployment transition must preserve the
+exact generation-5 anchor, original failed-attempt/bridge provenance, prior
+state/pins, and all existing certificates. Update only the controller hash and
+the journal's `limits.maximum_rewrites` binding from **1 to 5**; the per-unit
+limits, Go/verifier/decoder, wrapper, admission, mount settings, and credentials
+remain unchanged. Do not reset or renumber the journal. The transition and final
+evidence must bind the fixed anchor and every subsequent parent link.
+
+No tail warmup is rerun for this format-013 continuation. The installed
+historical warmup helper remains unchanged and unused. Its old source/controller
+pin is retained with the earlier evidence; a repository-only embedded controller
+pin update keeps source compatibility and is not a deployment of that helper.
+
 Before the first controller dry run, the hostname's first label must be `rhea`
 (case-insensitive), the lab reader must be inactive, and the full-clone writer
 must be active through the existing guarded wrapper. Production Kubo and the
@@ -172,8 +199,10 @@ sudo python3 /root/.local/share/rhea-wasabi-lab-admin-20261101/run_rhea_full_clo
 ```
 
 The controller does not loop into the next stage. A later stage is admitted only
-after the preceding certificate is durable. After one successful `step`, a
-second `step` is refused. There is no `finish`, `ratchet14`, or arbitrary action.
+after the preceding certificate is durable. Each `step` permits exactly one
+authoritative rewrite process. Once **five** successful rewrites have completed
+at **generation 9**, another `step` is refused. There is no batch writer,
+`finish`, `ratchet14`, or arbitrary action.
 Formats 6, 7, and 10 require zero marked files before their operation. If format 6
 discovers split-user-key work, format 7 remains blocked for deliberate review;
 the controller does not enter its potentially blocking rewrite migration.
@@ -182,7 +211,12 @@ the controller does not enter its potentially blocking rewrite migration.
 and any budget-stop sentinel. The mount wrapper's own `status` remains the
 independent lifecycle diagnostic if controller deployment inputs are unavailable.
 
-## Optional tail warmup at format 007
+## Historical optional tail warmup at format 007
+
+This section describes the completed format-007 warmup and its historical
+installed helper. It is not invoked during the four-unit format-013 pacing
+continuation. The `7fbf…` helper below remains bound to its earlier controller
+source; its digest must not be used to install a different repository version.
 
 After `ratchet7` has a durable certificate and before `ratchet10`,
 `scripts/warm_rhea_full_clone_tails.py` can warm table metadata tails through the
@@ -262,6 +296,7 @@ pilot receipt alongside the full-run receipt before proceeding to `ratchet10`.
 | Pending upload bytes | At most 768 MiB |
 | Pending upload files | At most 256 |
 | New-stage backlog | Exactly zero queued, uploading, or errored files, with `outOfSpace=false` |
+| Total successful rewrites / generation | At most five / nine, with one separately admitted writer per invocation |
 
 The controller requires explicit authenticated `diskCache.bytesUsed` telemetry;
 an unavailable statistic is not interpreted as zero. It polls every Go child's
@@ -334,7 +369,8 @@ same authenticated Unix-socket PID. No TCP RC endpoint, batch wildcard, arbitrar
 duration, discard, or forced upload method is exposed.
 
 The independent verifier then establishes the new closed generation before
-publication. It preserves the exact original SST identities for untouched files,
+publication. It preserves the exact identities of untouched original and
+earlier-created SSTs,
 retains historical pins for retired files, independently streams and hashes only
 newly created SSTs, and validates current metadata and MANIFEST closure. The
 prepublication proof and its canonical hash are journaled before any marker is
@@ -346,6 +382,13 @@ exists: the fresh MANIFEST marker is the publication barrier. Before every marke
 the exact preverified metadata and created-SST identities are re-HEADed. Each
 published marker is independently read as a pinned empty S3 object. Final
 verification then certifies the complete remote generation.
+
+Both verifier passes enumerate the full versioned prefix for every unit.
+Created/retired lineage remains cumulative across units, including historical
+pins for an earlier output that is later retired. Only the current unit's new
+output payloads are streamed again. The `unchanged_sst_versions` counter includes
+surviving earlier-created outputs; reports must distinguish these from surviving
+original SSTs and label payload counters by verification pass.
 
 A fresh read-only Go `inspect` must match that certificate's format, marked count,
 exact inventory digest, count, and bytes. The mounted metadata must still match
@@ -362,6 +405,11 @@ Persistent evidence is under `full-clone-steps/` in the trusted directory:
 - `stages/000001-ratchet6/` and subsequent fixed stage directories: writer output,
   process receipt, closed snapshot, and created-SST hashes.
 - `checkpoints/000001-ratchet6.json` and subsequent immutable certificates.
+
+After the original `000005-step` certificate, the pacing continuation appends
+`000006-step` through `000009-step`. It preserves all original stage directories,
+the separately archived failed attempt, and its failed-close bridge. An existing
+stage directory always prevents launching its writer again.
 
 Journal files are written through private temporary files, fsynced, atomically
 replaced, and followed by directory and parent-directory fsyncs. An existing
@@ -386,12 +434,15 @@ copy old files over an unreconciled mixed-format directory.
 
 ```console
 python3 -m unittest discover -s tests -p 'test_run_rhea_full_clone_steps.py' -v
+python3 -m unittest discover -s tests -p 'test_verify_rhea_full_clone.py' -v
 python3 -m unittest discover -s tests -p 'test_warm_rhea_full_clone_tails.py' -v
 python3 -m unittest discover -s tests
 ```
 
 The focused tests cover stage ordering, durable intent and publication proof,
-one total rewrite, exact plan/delta validation, independent budgets, no writer
+one rewrite per process, the five-total/generation-nine ceiling, exact plan/delta
+validation, cumulative lineage and surviving earlier-output identities,
+independent budgets, no writer
 replay after interruption, partial-publication recovery, and the actual process
 monitor path requesting cooperative stop without signals or retry. They do not
 claim that a live full-clone rewrite has happened.
