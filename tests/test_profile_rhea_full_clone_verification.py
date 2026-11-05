@@ -2,7 +2,9 @@
 import importlib.util
 import io
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import threading
 import types
 import unittest
 from unittest.mock import patch
@@ -40,8 +42,9 @@ def stub_verifier(callback):
     return module
 
 
-def profile_stub(module, client=None, metrics=None):
-    return p.profile_verify_generation(module, client, {}, {}, {}, {}, {}, "final", "a" * 64, metrics=metrics)
+def profile_stub(module, client=None, metrics=None, **controls):
+    return p.profile_verify_generation(module, client, {}, {}, {}, {}, {}, "final", "a" * 64,
+                                       metrics=metrics, **controls)
 
 
 class ProfileTests(unittest.TestCase):
@@ -76,6 +79,7 @@ class ProfileTests(unittest.TestCase):
                 self.assertEqual(metrics["functions"]["_get_bytes"]["calls"], len(gets) - 1)
                 self.assertEqual(metrics["functions"]["_hash_new_sst"]["calls"], 1)
                 self.assertTrue(metrics["verifier_returned"])
+                self.assertTrue(all(value == 0 for value in metrics["s3"]["list_object_versions_direct"].values()))
                 self.assertIn("inclusive", metrics["timing_semantics"])
                 self.assertIn("non-additive", metrics["timing_semantics"])
                 for stats in metrics["functions"].values():
@@ -362,6 +366,214 @@ class ProfileTests(unittest.TestCase):
         self.assert_restored(original, module)
         module.verify_generation = lambda **kwargs: "reusable"
         self.assertEqual(profile_stub(module)[0], "reusable")
+
+    def test_candidate_controls_forward_only_explicit_named_arguments(self):
+        for workers in (None, 1, 4):
+            with self.subTest(workers=workers):
+                captured, enumeration, token, result = [], {}, threading.Event(), object()
+
+                def verify(**kwargs):
+                    captured.append(kwargs)
+                    if workers is not None:
+                        kwargs["enumeration_metrics"].update(complete=True, workers=workers)
+                    return result
+
+                module = stub_verifier(verify)
+                controls = {} if workers is None else {
+                    "enumeration_workers": workers, "enumeration_stop": token,
+                    "enumeration_metrics": enumeration,
+                }
+                returned, metrics = profile_stub(module, **controls)
+                self.assertIs(returned, result)
+                extra = set(captured[0]) - {"s3", "ledger", "previous_checkpoint", "go_report",
+                    "metadata_bytes", "created_sst_hashes", "mode", "previous_checkpoint_sha256"}
+                self.assertEqual(extra, set(controls))
+                if workers is not None:
+                    self.assertIs(captured[0]["enumeration_metrics"], enumeration)
+                    self.assertIs(captured[0]["enumeration_stop"], token)
+                    self.assertEqual(enumeration, {"complete": True, "workers": workers})
+                self.assertTrue(metrics["verifier_returned"])
+
+    def test_invalid_candidate_controls_are_refused_before_verifier_call(self):
+        module = stub_verifier(lambda **kwargs: self.fail("invalid controls reached verifier"))
+        original = self.originals(module)
+        cases = [{"enumeration_workers": value} for value in (True, False, 0, 2, 3, 5, "4")]
+        cases += [
+            {"enumeration_stop": threading.Event()}, {"enumeration_metrics": {}},
+            {"enumeration_workers": 4, "enumeration_stop": object()},
+            {"enumeration_workers": 4, "enumeration_metrics": []},
+            {"enumeration_workers": 4, "enumeration_metrics": {"already": "populated"}},
+        ]
+        for controls in cases:
+            metrics = {}
+            with self.subTest(controls=controls), self.assertRaises(p.ProfileRefusal):
+                profile_stub(module, metrics=metrics, **controls)
+            self.assertEqual(metrics, {})
+            self.assert_restored(original, module)
+        shared = {}
+        with self.assertRaises(p.ProfileRefusal):
+            profile_stub(module, metrics=shared, enumeration_workers=4, enumeration_metrics=shared)
+        with self.assertRaises(TypeError):
+            profile_stub(module, enumeration_callback=lambda: self.fail("arbitrary callback invoked"))
+
+    def test_historical_verifier_with_candidate_controls_is_not_silently_retried(self):
+        fixture, metrics, original = fixtures.StageFixture(), {}, self.originals()
+        with self.assertRaises(TypeError):
+            p.profile_verify_generation(v, fixture.s3, fixture.ledger, fixture.previous, fixture.report,
+                fixture.metadata, fixture.hashes, fixture.mode, v.canonical_sha256(fixture.previous),
+                metrics=metrics, enumeration_workers=4)
+        self.assertEqual((fixture.s3.gets, fixture.s3.heads), ([], []))
+        self.assertFalse(metrics["verifier_returned"])
+        self.assert_restored(original)
+
+    def test_concurrent_direct_calls_count_exactly_without_serializing_sdk_or_faking_pages(self):
+        barrier, rounds = threading.Barrier(4, timeout=3), 8
+        pages = [{"Versions": [{"Key": "private-key", "VersionId": "private-version", "IsLatest": True},
+                               {"Key": "private-key", "VersionId": "private-history", "IsLatest": False}],
+                  "DeleteMarkers": [{"Key": "private-delete", "IsLatest": index % 2 == 0}]}
+                 for index in range(4)]
+        for index, page in enumerate(pages[:3]):
+            page["ResponseMetadata"] = {"RetryAttempts": index, "RequestId": "private-request"}
+
+        class Client:
+            def list_object_versions(self, **kwargs):
+                index = int(kwargs["KeyMarker"].rsplit("-", 1)[1])
+                barrier.wait()
+                return pages[index]
+
+            def get_object(self, **kwargs):
+                return {"Body": io.BytesIO(b"hello"), "ResponseMetadata": {"RetryAttempts": 1}}
+
+            def head_object(self, **kwargs):
+                return {"ResponseMetadata": {"RetryAttempts": 0}}
+
+        returned = object()
+        module = stub_verifier(lambda **kwargs: module._collect_latest(kwargs["s3"]))
+
+        def collect(client):
+            def worker(index):
+                for unused in range(rounds):
+                    self.assertIs(client.list_object_versions(Bucket="private-bucket", Prefix="private/",
+                                  KeyMarker="private-" + str(index)), pages[index])
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [executor.submit(worker, index) for index in range(4)]
+                for future in futures:
+                    future.result()
+            body = client.get_object(Key="private-key")["Body"]
+            try:
+                self.assertEqual(body.read(), b"hello")
+            finally:
+                body.close()
+            client.head_object(Key="private-key")
+            return returned
+
+        module._collect_latest = collect
+        original = self.originals(module)
+        result, metrics = profile_stub(module, Client(), enumeration_workers=4)
+        self.assertIs(result, returned)
+        direct = metrics["s3"]["list_object_versions_direct"]
+        self.assertEqual((direct["calls"], direct["pages"], direct["failed_calls"]), (4 * rounds, 4 * rounds, 0))
+        self.assertEqual((direct["version_rows"], direct["latest_version_rows"], direct["delete_marker_rows"],
+                          direct["latest_delete_marker_rows"]), (8 * rounds, 4 * rounds, 4 * rounds, 2 * rounds))
+        self.assertEqual((direct["responses_with_retry_metadata"], direct["reported_retry_attempts"],
+                          direct["max_reported_retry_attempts"]), (3 * rounds, 3 * rounds, 2))
+        self.assertEqual((direct["in_flight"], direct["max_in_flight"]), (0, 4))
+        self.assertTrue(all(value == 0 for value in metrics["s3"]["list_object_versions"].values()))
+        self.assertEqual(metrics["s3"]["get_object"]["calls"], 1)
+        self.assertEqual(metrics["s3"]["head_object"]["calls"], 1)
+        self.assertEqual((metrics["body"]["bytes_returned"], metrics["body"]["opened"], metrics["body"]["closed"]), (5, 1, 1))
+        self.assertNotIn("private", json.dumps(metrics))
+        self.assertIn("overlap", metrics["direct_listing_semantics"])
+        self.assert_restored(original, module)
+
+    def test_direct_sdk_error_and_baseexception_keep_identity_after_all_workers_join(self):
+        class ProbeAbort(BaseException):
+            pass
+
+        for error in (RuntimeError("private SDK details"), ProbeAbort("private cancellation")):
+            with self.subTest(error=type(error).__name__):
+                error.response = {"ResponseMetadata": {"RetryAttempts": 2}}
+                barrier, completed, completed_lock = threading.Barrier(4, timeout=3), [], threading.Lock()
+
+                class Client:
+                    def list_object_versions(self, **kwargs):
+                        index = int(kwargs["KeyMarker"])
+                        try:
+                            barrier.wait()
+                            if index == 0:
+                                raise error
+                            return {"Versions": [], "DeleteMarkers": [], "ResponseMetadata": {"RetryAttempts": 0}}
+                        finally:
+                            with completed_lock:
+                                completed.append(index)
+
+                def verify(**kwargs):
+                    with ThreadPoolExecutor(max_workers=4) as executor:
+                        futures = [executor.submit(kwargs["s3"].list_object_versions, KeyMarker=str(index))
+                                   for index in range(4)]
+                        for future in futures:
+                            future.result()
+
+                module, metrics = stub_verifier(verify), {}
+                original = self.originals(module)
+                with self.assertRaises(type(error)) as caught:
+                    profile_stub(module, Client(), metrics, enumeration_workers=4)
+                self.assertIs(caught.exception, error)
+                self.assertEqual(sorted(completed), [0, 1, 2, 3])
+                direct = metrics["s3"]["list_object_versions_direct"]
+                self.assertEqual((direct["calls"], direct["pages"], direct["failed_calls"]), (4, 3, 1))
+                self.assertEqual((direct["in_flight"], direct["max_in_flight"]), (0, 4))
+                self.assertEqual((direct["responses_with_retry_metadata"], direct["reported_retry_attempts"]), (4, 2))
+                self.assertFalse(metrics["verifier_returned"])
+                self.assertNotIn("private", json.dumps(metrics))
+                self.assert_restored(original, module)
+
+    def test_optional_error_diagnostics_cannot_replace_original_sdk_exception(self):
+        class DiagnosticAbort(BaseException):
+            pass
+
+        class SDKFailure(RuntimeError):
+            @property
+            def response(self):
+                raise DiagnosticAbort("private diagnostic failure")
+
+        error = SDKFailure("private SDK failure")
+
+        def fail(**kwargs):
+            raise error
+
+        module, metrics = stub_verifier(lambda **kwargs: kwargs["s3"].list_object_versions()), {}
+        with self.assertRaises(SDKFailure) as caught:
+            profile_stub(module, types.SimpleNamespace(list_object_versions=fail), metrics)
+        self.assertIs(caught.exception, error)
+        direct = metrics["s3"]["list_object_versions_direct"]
+        self.assertEqual((direct["failed_calls"], direct["in_flight"], direct["responses_with_retry_metadata"]), (1, 0, 0))
+
+    def test_direct_call_timing_is_separate_from_legacy_paginator_timing(self):
+        class Clock:
+            wall = cpu = 0.0
+
+        clock = Clock()
+
+        def request(**kwargs):
+            clock.wall += 4
+            clock.cpu += 0.25
+            return {"Versions": [], "DeleteMarkers": []}
+
+        module = stub_verifier(lambda **kwargs: module._collect_latest(kwargs["s3"]))
+        module._collect_latest = lambda client: [client.list_object_versions() for unused in range(2)]
+        with patch.object(p.time, "perf_counter", side_effect=lambda: clock.wall), patch.object(
+            p.time, "process_time", side_effect=lambda: clock.cpu
+        ):
+            result, metrics = profile_stub(module, types.SimpleNamespace(list_object_versions=request))
+        self.assertEqual(len(result), 2)
+        self.assertEqual(metrics["s3"]["list_object_versions_direct"]["wall_seconds"], 8)
+        self.assertEqual(metrics["s3"]["list_object_versions_direct"]["max_in_flight"], 1)
+        self.assertEqual(metrics["s3"]["list_object_versions"]["wall_seconds"], 0)
+        self.assertEqual(metrics["functions"]["_collect_latest"]["wall_seconds"], 8)
+        self.assertEqual(metrics["wall_seconds"], 8)
+        self.assertEqual(metrics["cpu_seconds"], 0.5)
 
 
 if __name__ == "__main__":
