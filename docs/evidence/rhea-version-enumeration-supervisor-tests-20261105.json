@@ -1,0 +1,169 @@
+{
+  "all_passed": true,
+  "authorization_only_adapted_for_owned_scratch": true,
+  "cases": [
+    {
+      "case": "success",
+      "driver_elapsed_seconds": 0.1149206830014009,
+      "fallback_cleanup_used": false,
+      "pid_absent": true,
+      "process_group_absent": true,
+      "sighup_after_launch_receipt": false,
+      "supervisor_returncode": 0,
+      "timing": {
+        "child_reaped": true,
+        "completed_receipt_present": true,
+        "elapsed_seconds": 0.06630555199808441,
+        "failure_receipt_present": false,
+        "finished_unix": 1793856695.6623802,
+        "kill_sent": false,
+        "launcher_intent_sha256": "75bbbb2458aa7c0706ba5b36712287fb5da80747f99f02f12b4a60d91a771d59",
+        "outer_timeout": false,
+        "pid": 6,
+        "process_group_guard_failed": false,
+        "returncode": 0,
+        "schema": 1,
+        "scope": "fixed-read-only-enumeration-invocation",
+        "sources": {
+          "compare.py": {
+            "bytes": 625,
+            "sha256": "185bc1b137b8e99ea811f3c0c195a34eed3e09f6e5bb1544e515e9e99078dd1a"
+          },
+          "enumerate_rhea_versions.py": {
+            "bytes": 26,
+            "sha256": "6c7916a2c1b815c6136fe75a91393e4ef843083b740d94cc5459d92b1c98083b"
+          }
+        },
+        "started_unix": 1793856695.5960755,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "supervisor_error_type": null,
+        "term_sent": false
+      }
+    },
+    {
+      "case": "timeout",
+      "driver_elapsed_seconds": 0.4619594750001852,
+      "fallback_cleanup_used": false,
+      "pid_absent": true,
+      "process_group_absent": true,
+      "sighup_after_launch_receipt": false,
+      "supervisor_returncode": 1,
+      "timing": {
+        "child_reaped": true,
+        "completed_receipt_present": false,
+        "elapsed_seconds": 0.4034778860004735,
+        "failure_receipt_present": false,
+        "finished_unix": 1793856696.125893,
+        "kill_sent": true,
+        "launcher_intent_sha256": "320073b5cb8bc851a80fb3cd378b4905286880e420e0f17374d574daa0cfc596",
+        "outer_timeout": true,
+        "pid": 8,
+        "process_group_guard_failed": false,
+        "returncode": -9,
+        "schema": 1,
+        "scope": "fixed-read-only-enumeration-invocation",
+        "sources": {
+          "compare.py": {
+            "bytes": 625,
+            "sha256": "9bf7bcfb61a533e46590fe435f0796713e36403a028ab27f6fae5e349ff75dfd"
+          },
+          "enumerate_rhea_versions.py": {
+            "bytes": 26,
+            "sha256": "6c7916a2c1b815c6136fe75a91393e4ef843083b740d94cc5459d92b1c98083b"
+          }
+        },
+        "started_unix": 1793856695.7224154,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "supervisor_error_type": null,
+        "term_sent": true
+      }
+    },
+    {
+      "case": "parent-hup",
+      "driver_elapsed_seconds": 0.07095476499671349,
+      "fallback_cleanup_used": false,
+      "pid_absent": true,
+      "process_group_absent": true,
+      "sighup_after_launch_receipt": true,
+      "supervisor_returncode": 1,
+      "timing": {
+        "child_reaped": true,
+        "completed_receipt_present": false,
+        "elapsed_seconds": 0.024141452999174362,
+        "failure_receipt_present": false,
+        "finished_unix": 1793856696.19615,
+        "kill_sent": true,
+        "launcher_intent_sha256": "3352d54892ad4ffec1ebd561ff2469a6b796ea52480d69166b142df45de01c90",
+        "outer_timeout": false,
+        "pid": 10,
+        "process_group_guard_failed": false,
+        "returncode": -9,
+        "schema": 1,
+        "scope": "fixed-read-only-enumeration-invocation",
+        "sources": {
+          "compare.py": {
+            "bytes": 628,
+            "sha256": "4cdcec2ca0402e873c85039fea105843a4265ff86898acb6c2cb98ecdc7c7dab"
+          },
+          "enumerate_rhea_versions.py": {
+            "bytes": 26,
+            "sha256": "6c7916a2c1b815c6136fe75a91393e4ef843083b740d94cc5459d92b1c98083b"
+          }
+        },
+        "started_unix": 1793856696.1720088,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "supervisor_error_type": "SupervisorInterrupted",
+        "term_sent": false
+      }
+    },
+    {
+      "case": "constructor-hup",
+      "driver_elapsed_seconds": 0.05251035900073475,
+      "fallback_cleanup_used": false,
+      "pid_absent": true,
+      "process_group_absent": true,
+      "sighup_after_launch_receipt": false,
+      "supervisor_returncode": 1,
+      "timing": {
+        "child_reaped": true,
+        "completed_receipt_present": false,
+        "elapsed_seconds": 0.0015152689993556123,
+        "failure_receipt_present": false,
+        "finished_unix": 1793856696.2501404,
+        "kill_sent": true,
+        "launcher_intent_sha256": "b2abf5a3d9c742ff7c1486a6e4dfa66c63a22c58ef056d7ec0c208332985f42d",
+        "outer_timeout": false,
+        "pid": 12,
+        "process_group_guard_failed": false,
+        "returncode": -9,
+        "schema": 1,
+        "scope": "fixed-read-only-enumeration-invocation",
+        "sources": {
+          "compare.py": {
+            "bytes": 633,
+            "sha256": "6aff358f5e58aa79e34ec531e1f36e6447f0d19d4c226ed36807a97c5ab38d3f"
+          },
+          "enumerate_rhea_versions.py": {
+            "bytes": 26,
+            "sha256": "6c7916a2c1b815c6136fe75a91393e4ef843083b740d94cc5459d92b1c98083b"
+          }
+        },
+        "started_unix": 1793856696.2486246,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "supervisor_error_type": "SupervisorInterrupted",
+        "term_sent": false
+      }
+    }
+  ],
+  "grace_seconds": 0.2,
+  "local_uid": 1000,
+  "outer_seconds": 0.2,
+  "retained_source_hashes_verified": true,
+  "schema": 1,
+  "template_sha256": "19ed1c41ef74d2cda5505d757285bcebccfb1f4954534df5c39f6cf5a4947c89",
+  "template_unchanged": true
+}
