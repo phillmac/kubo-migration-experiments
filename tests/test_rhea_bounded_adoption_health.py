@@ -1,5 +1,6 @@
 """Focused offline health contract tests using the exact public gen9 anchor."""
 import copy
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
@@ -85,6 +86,26 @@ class HealthTests(unittest.TestCase):
         self.new_module = SimpleNamespace(PINS=m.NEW_PINS, VERIFIER=m.NEW_VERIFIER, STATE_ROOT=m.STATE.parent,
                                           LIMITS=m.LIMITS, MAX_REWRITES=5, MAX_GENERATION=9,
                                           Runtime=Mock(return_value=self.new_rt))
+        self.symlinks = set()
+
+    @contextmanager
+    def fixture_status(self):
+        """No status query in the retained-proof fixture may reach /root."""
+        failure = m.OPS / 'acceptance/000001/failure.json'
+        calls = []
+
+        def exists(path):
+            self.assertEqual(path, failure, 'unexpected filesystem status query')
+            calls.append(('exists', path))
+            return path in self.files
+
+        def is_symlink(path):
+            self.assertEqual(path, failure, 'unexpected filesystem status query')
+            calls.append(('is_symlink', path))
+            return path in self.symlinks
+
+        with patch.object(m.Path, 'exists', exists), patch.object(m.Path, 'is_symlink', is_symlink):
+            yield calls
 
     def completion(self):
         result_value = json.loads((ROOT / 'docs/evidence/rhea-integrated-verification-bounded-candidate-20261105.json').read_bytes())
@@ -256,9 +277,11 @@ class HealthTests(unittest.TestCase):
 
     def test_permanent_check_reconciles_exact_semantics_and_rejects_changed_proof(self):
         done = self.completion()
-        with patch.object(m, 'observe', return_value=self.after_guard), \
+        with self.fixture_status() as calls, patch.object(m, 'observe', return_value=self.after_guard), \
                 patch.object(m, 'exact_module', side_effect=self.imports):
             checked = m.check_completed(self.ctx)
+        failure = m.OPS / 'acceptance/000001/failure.json'
+        self.assertEqual(calls, [('exists', failure), ('is_symlink', failure)])
         self.assertEqual(checked['completed_sha256'], m.sha(m.canonical(done)))
         path = m.OPS / 'acceptance/000001/result.json'
         result = json.loads(self.files[path])
@@ -271,8 +294,29 @@ class HealthTests(unittest.TestCase):
         self.files[receipt_path] = m.canonical(receipt)
         done['verification']['receipt_sha256'] = m.sha(self.files[receipt_path])
         self.files[m.OPS / 'completed.json'] = m.canonical(done)
-        with patch.object(m, 'observe', return_value=self.after_guard), self.assertRaisesRegex(RuntimeError, 'semantic projection'):
+        with self.fixture_status() as calls, patch.object(m, 'observe', return_value=self.after_guard), \
+                self.assertRaisesRegex(RuntimeError, 'semantic projection'):
             m.check_completed(self.ctx)
+        self.assertEqual(calls, [('exists', failure), ('is_symlink', failure)])
+
+    def test_permanent_check_refuses_failure_receipt_or_broken_symlink(self):
+        self.completion()
+        failure = m.OPS / 'acceptance/000001/failure.json'
+        for broken_symlink in (False, True):
+            if broken_symlink:
+                self.symlinks.add(failure)
+            else:
+                self.files[failure] = b'{"failed":true}\n'
+            with self.subTest(broken_symlink=broken_symlink), self.fixture_status() as calls, \
+                    patch.object(m, 'observe', return_value=self.after_guard), \
+                    patch.object(m, 'exact_module') as importer, \
+                    self.assertRaisesRegex(RuntimeError, 'also has a failure receipt'):
+                m.check_completed(self.ctx)
+            importer.assert_not_called()
+            expected = [('exists', failure)] + ([('is_symlink', failure)] if broken_symlink else [])
+            self.assertEqual(calls, expected)
+            self.files.pop(failure, None)
+            self.symlinks.discard(failure)
 
     def test_acceptance_receipt_links_lifecycle_sources_and_invocation(self):
         done = self.completion()
