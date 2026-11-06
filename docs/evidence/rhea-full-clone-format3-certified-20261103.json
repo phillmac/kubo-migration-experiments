@@ -1,0 +1,106 @@
+{
+  "bucket": "rhea-pebble-lab-20261101-39037c6f01",
+  "certified_unix": 1793652717.7245631,
+  "code_commit": "dd11b9c0bb8205f0df7a6929758c3b3f508cfe2a",
+  "evidence_sha256": {
+    "closed-metadata-snapshot.json": "c82849a9403db3964d68e16f3053018475c389f2f21aee017e53090c7c115530",
+    "data-flush.json": "cc97c711560f3eae8386ea30b486d35676cb70fd1e803f8181a633931de88e0d",
+    "final-operational-state.json": "de4bc2cc11d5ba4571c47914e9235c3df4dc73c75a0e61f25b1836787d75bfee",
+    "fresh-reader-reopen.json": "ca8c5558187848248dccad43a1f2c9346dd9a2da77cdec57dd4350a8f2fd1f30",
+    "local-readonly-inspect.json": "26786229ff2047e705ebfe56753539ad95f8d66c6fd11e4b078c892a7f4a230e",
+    "marker-publication-completed.json": "ad38ee35421df5f64e588c2ddcc940f67b9437fed6cad9a947a824dc05cdea40",
+    "metadata-tune-completed.json": "3b801c328ab1130eeef7db674acd872853b2770ce0d6646ff7646849285b71f9",
+    "plan-after-metadata-tune.json": "0a04bf6f58b766823c50699ab4ad5e21220f7dbeadf73abdc41d7541588246fe",
+    "ratchet3-result.json": "c508d0995278c6e66e3f3896165b41fa543640ede96541e77893500b720d6522",
+    "reader-generation-after-open.json": "f03bc6bb000e41bb8b4e9598a865601815f642a3dd6241c65322054738e42683",
+    "reader-generation-before-open.json": "398f450f2f36f2bee9bc80d9cc0b170ce112a7c449d9910d341c66d49db61f6a",
+    "reader-restored.json": "4373e5f274dbd662abecad4ee35b6daab435aacdaf9ce35e96d4e5227a135b82",
+    "s3-before-markers.json": "84bfe7509935ed178e88595d00016c01693215877bb7ce923ba944583fe147cb",
+    "s3-final.json": "5e2c6539106f03468980d577017c07d0dcca4fa7f12b7bd6a4d377c786191d56",
+    "writer-stopped.json": "6092151eabcd7a98ca58009d5661a2ff53bc2b6b71fd85a904de0441f29a4ab3"
+  },
+  "final_s3_report_sst_payload_bytes_downloaded": 0,
+  "format_major_version": "003",
+  "format_marker": "marker.format-version.000002.003",
+  "ledger_sha256": "38f7a0179aa7d7e4e166ffbd5818a224d0103e57e318706c578aa3506245fe96",
+  "manifest": "MANIFEST-47475291",
+  "manifest_marker": "marker.manifest.000001.MANIFEST-47475291",
+  "manifest_sha256": "fabc71207f6e456eab9a4ccda56ceb0e8294e05484503ae5d7606db9ff1f2026",
+  "marked_files": 0,
+  "pebble_reopen_verified": true,
+  "prefix": "rhea/",
+  "production_kubo_and_walker_inactive": true,
+  "production_rclone_active_and_clean": true,
+  "production_rclone_pid": 2554927,
+  "production_source": "ipfs-remote-mount/rhea/",
+  "reader_active": true,
+  "reader_binary_sha256": "6c0f7cb23cb4f5dcf42898334c70df65574ab21769024091c5036123bbbb3bc8",
+  "reader_generation_bound_to_s3_metadata": true,
+  "reader_pid": 2717693,
+  "remote_format3_closure_verified": true,
+  "remote_metadata": {
+    "47475290.log": {
+      "etag": "\"d4d9e5d8457f8afbcbba170ef85115b9\"",
+      "sha256": "5e91eec4cba4a44c274f33a996b1fc658a0c1ccc858d0c8e7f47c0dd986afdd3",
+      "size": 11,
+      "version_id": "001793651891794530214-u5ZJyGmPcf"
+    },
+    "CURRENT": {
+      "etag": "\"6159ac332fba78e3046d9f75edb5e396\"",
+      "sha256": "179aee986b08dd1c9b42165766a9f86be710e30d130c79ff234c4f8fbfb85f76",
+      "size": 16,
+      "version_id": "001793651904625177249-I5Y4iBP2Lr"
+    },
+    "LOCK": {
+      "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "version_id": "001793508356274562785-7Bd3cuFVRU"
+    },
+    "MANIFEST-47475278": {
+      "etag": "\"9fd7d57ddda6895f70d0d78f540ed8a2\"",
+      "sha256": "f563cc9c81da4e661562d131c01f12abb4bf84a15a8f9f604cbb1f551ddc86a6",
+      "size": 15499903,
+      "version_id": "001793508356864220581-1g7J-VgbuF"
+    },
+    "MANIFEST-47475291": {
+      "etag": "\"fe17328fc3d80bf56b17ffdc7cdec9a6\"",
+      "sha256": "fabc71207f6e456eab9a4ccda56ceb0e8294e05484503ae5d7606db9ff1f2026",
+      "size": 15498275,
+      "version_id": "001793651900644538030-NFC-vgrBfN"
+    },
+    "OPTIONS-47475292": {
+      "etag": "\"140a9be276c3297327ef2a7fb528bb0c\"",
+      "sha256": "357962897f0ea11a6dd97e813c7471d346fa75983aa49146138d12017a90a266",
+      "size": 1170,
+      "version_id": "001793651895623671946-J2Rk7q1ks8"
+    },
+    "marker.format-version.000002.003": {
+      "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "version_id": "001793652349827504452-ekrLRtagHt"
+    },
+    "marker.manifest.000001.MANIFEST-47475291": {
+      "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "version_id": "001793652345188159841-eJzLMuUgM0"
+    }
+  },
+  "schema": 1,
+  "scope": "disposable full-clone metadata-only format 001 to 003",
+  "sst_bytes": 7786594080785,
+  "sst_count": 93697,
+  "sst_inventory_sha256": "57b04d9508272a17df72aea1a6675fff1e13944ae83c884f988668b7f77cd134",
+  "sst_rewrite_performed": false,
+  "unchanged_sst_versions": 93697,
+  "unrelated_data_ipfs_pids": [
+    549370
+  ],
+  "verifier_sha256": "edf2a1bf7ba3184113c5b0f53d188f2f6b7157f802ea8595c6558ba92662ec4b",
+  "wrapper_sha256": "75c908c6ffb154264905f858f8b26e0fa7ab9fd22cd1dd75914918257ec5628d",
+  "writer_mount_absent": true,
+  "writer_socket_absent": true,
+  "writer_stopped": true
+}
