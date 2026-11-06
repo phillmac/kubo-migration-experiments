@@ -9,6 +9,18 @@ on:
       - 'cmd/pebble-format-v1/**'
       - 'scripts/test_standalone_pebble_format13.py'
       - 'scripts/run_rhea_full_clone_steps.py'
+      - 'scripts/run_rhea_full_clone_steps_bounded.py'
+      - 'scripts/adopt_rhea_bounded_verification.py'
+      - 'scripts/run_rhea_bounded_adoption.py'
+      - 'scripts/rhea_bounded_adoption_health.py'
+      - 'scripts/supervise_rhea_bounded_adoption.py'
+      - 'scripts/test_rhea_bounded_adoption_supervisor.py'
+      - 'scripts/verify_rhea_full_clone_bounded.py'
+      - 'scripts/enumerate_rhea_versions.py'
+      - 'tests/test_run_rhea_full_clone_steps_bounded.py'
+      - 'tests/test_adopt_rhea_bounded_verification.py'
+      - 'tests/test_run_rhea_bounded_adoption.py'
+      - 'tests/test_rhea_bounded_adoption_health.py'
       - 'scripts/verify_rhea_full_clone.py'
       - 'scripts/warm_rhea_full_clone_tails.py'
       - 'scripts/reconcile_rhea_failed_step.py'
@@ -42,6 +54,8 @@ jobs:
           cache: false
       - name: Unit test current lab guardrails
         run: python3 -m unittest discover -s tests -v
+      - name: Exercise bounded-adoption supervisor with owned local children
+        run: python3 scripts/test_rhea_bounded_adoption_supervisor.py
       - name: Compile pinned standalone Pebble v1.1.3 migrator
         shell: bash
         run: |

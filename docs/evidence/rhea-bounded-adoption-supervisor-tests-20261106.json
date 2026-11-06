@@ -1,0 +1,613 @@
+{
+  "all_passed": true,
+  "authorization_only_adapted_for_owned_scratch": true,
+  "cases": [
+    {
+      "case": "success",
+      "elapsed_seconds": 0.10718158500094432,
+      "fallback_cleanup_used": false,
+      "pid_absent": true,
+      "process_group_absent": true,
+      "supervisor_returncode": 0,
+      "timing": {
+        "action": "apply",
+        "attempt": "apply",
+        "child_reaped": true,
+        "completed_receipt_sha256": "8816a5c1624055cf452d4f5b4fa2a412b5e55a110e667ee8c6bde6f4ad613a5e",
+        "completed_receipt_valid": true,
+        "completion_error_type": null,
+        "elapsed_seconds": 0.06457478499942226,
+        "finished_unix": 1793941181.5089703,
+        "kill_sent": false,
+        "launcher_intent_sha256": "e3d881bc27247a363d1ff38811cc433712d77f7014da997cc42f235d1bf90598",
+        "outer_timeout": false,
+        "pid": 7,
+        "process_group_guard_failed": false,
+        "returncode": 0,
+        "schema": 1,
+        "scope": "fixed-bounded-verifier-adoption-invocation",
+        "sources": {
+          "controller-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "deployment.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "expected-pins-before.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "expected-state-before.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "health.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "run.py": {
+            "bytes": 1247,
+            "sha256": "6969b0f3bd61b810648e26bfccd0306b6081956f41982b7750d203bbc809a277"
+          },
+          "scanner-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "transaction.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "verifier-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          }
+        },
+        "started_unix": 1793941181.4443958,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "9aff1205bf2878d60c320d3b8ed545b7bb0e9e699692b85aff6fcb32ec740112",
+        "supervisor_error_type": null,
+        "term_sent": false
+      }
+    },
+    {
+      "case": "timeout",
+      "elapsed_seconds": 0.44482096700085094,
+      "fallback_cleanup_used": false,
+      "pid_absent": true,
+      "process_group_absent": true,
+      "supervisor_returncode": 1,
+      "timing": {
+        "action": "apply",
+        "attempt": "apply",
+        "child_reaped": true,
+        "completed_receipt_sha256": null,
+        "completed_receipt_valid": false,
+        "completion_error_type": null,
+        "elapsed_seconds": 0.40185919200303033,
+        "finished_unix": 1793941181.954031,
+        "kill_sent": true,
+        "launcher_intent_sha256": "33eecb4ad3852f545eb4f5c4a33eb4830fd09831985803d566db390f784d4cef",
+        "outer_timeout": true,
+        "pid": 9,
+        "process_group_guard_failed": false,
+        "returncode": -9,
+        "schema": 1,
+        "scope": "fixed-bounded-verifier-adoption-invocation",
+        "sources": {
+          "controller-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "deployment.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "expected-pins-before.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "expected-state-before.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "health.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "run.py": {
+            "bytes": 1247,
+            "sha256": "40179f2ae698a5943040744010e4752fbc32d2f4a9ea622446cff57c6075048f"
+          },
+          "scanner-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "transaction.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "verifier-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          }
+        },
+        "started_unix": 1793941181.552173,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "supervisor_error_type": null,
+        "term_sent": true
+      }
+    },
+    {
+      "case": "parent-hup",
+      "elapsed_seconds": 0.06899999899906106,
+      "fallback_cleanup_used": false,
+      "pid_absent": true,
+      "process_group_absent": true,
+      "supervisor_returncode": 1,
+      "timing": {
+        "action": "apply",
+        "attempt": "apply",
+        "child_reaped": true,
+        "completed_receipt_sha256": null,
+        "completed_receipt_valid": false,
+        "completion_error_type": null,
+        "elapsed_seconds": 0.023993269001948647,
+        "finished_unix": 1793941182.0240314,
+        "kill_sent": true,
+        "launcher_intent_sha256": "a2907e2e74c781fce0ba60f8d92ab8bd1ed01ffe208b6a5343d7cfd816fb9f12",
+        "outer_timeout": false,
+        "pid": 11,
+        "process_group_guard_failed": false,
+        "returncode": -9,
+        "schema": 1,
+        "scope": "fixed-bounded-verifier-adoption-invocation",
+        "sources": {
+          "controller-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "deployment.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "expected-pins-before.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "expected-state-before.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "health.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "run.py": {
+            "bytes": 1250,
+            "sha256": "2043bee8480b5d6fc35fdaeb3ffc43e7afa654bba54c846c5c4d70a715852745"
+          },
+          "scanner-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "transaction.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "verifier-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          }
+        },
+        "started_unix": 1793941182.0000384,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "supervisor_error_type": "SupervisorInterrupted",
+        "term_sent": false
+      }
+    },
+    {
+      "case": "constructor-hup",
+      "elapsed_seconds": 0.04385282399744028,
+      "fallback_cleanup_used": false,
+      "pid_absent": true,
+      "process_group_absent": true,
+      "supervisor_returncode": 1,
+      "timing": {
+        "action": "apply",
+        "attempt": "apply",
+        "child_reaped": true,
+        "completed_receipt_sha256": null,
+        "completed_receipt_valid": false,
+        "completion_error_type": null,
+        "elapsed_seconds": 0.0008652199976495467,
+        "finished_unix": 1793941182.068511,
+        "kill_sent": true,
+        "launcher_intent_sha256": "0085dddf03b856e3a22ec3c2119a079f63c7cf5eb61cf4844bf77f5439f8bfc4",
+        "outer_timeout": false,
+        "pid": 13,
+        "process_group_guard_failed": false,
+        "returncode": -9,
+        "schema": 1,
+        "scope": "fixed-bounded-verifier-adoption-invocation",
+        "sources": {
+          "controller-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "deployment.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "expected-pins-before.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "expected-state-before.json": {
+            "bytes": 32,
+            "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+          },
+          "health.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "run.py": {
+            "bytes": 1255,
+            "sha256": "6a51f8c9930b4c4fc1960fe3b8f333ae9b7e416eca6e4cc462c2c02af3c1bf1b"
+          },
+          "scanner-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "transaction.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          },
+          "verifier-candidate.py": {
+            "bytes": 21,
+            "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+          }
+        },
+        "started_unix": 1793941182.0676458,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "supervisor_error_type": "SupervisorInterrupted",
+        "term_sent": false
+      }
+    },
+    {
+      "case": "fresh-apply-refusal",
+      "existing_files_unchanged": true,
+      "first": {
+        "elapsed_seconds": 0.10573451999516692,
+        "fallback_cleanup_used": false,
+        "pid_absent": true,
+        "process_group_absent": true,
+        "supervisor_returncode": 0,
+        "timing": {
+          "action": "apply",
+          "attempt": "apply",
+          "child_reaped": true,
+          "completed_receipt_sha256": "8816a5c1624055cf452d4f5b4fa2a412b5e55a110e667ee8c6bde6f4ad613a5e",
+          "completed_receipt_valid": true,
+          "completion_error_type": null,
+          "elapsed_seconds": 0.06461427199974423,
+          "finished_unix": 1793941182.1744206,
+          "kill_sent": false,
+          "launcher_intent_sha256": "4b321ba049123139f768284f0afdb52d7a5d5289e171900b4d4ffde962568ff3",
+          "outer_timeout": false,
+          "pid": 15,
+          "process_group_guard_failed": false,
+          "returncode": 0,
+          "schema": 1,
+          "scope": "fixed-bounded-verifier-adoption-invocation",
+          "sources": {
+            "controller-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "deployment.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "expected-pins-before.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "expected-state-before.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "health.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "run.py": {
+              "bytes": 1247,
+              "sha256": "6969b0f3bd61b810648e26bfccd0306b6081956f41982b7750d203bbc809a277"
+            },
+            "scanner-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "transaction.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "verifier-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            }
+          },
+          "started_unix": 1793941182.1098065,
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "9aff1205bf2878d60c320d3b8ed545b7bb0e9e699692b85aff6fcb32ec740112",
+          "supervisor_error_type": null,
+          "term_sent": false
+        }
+      },
+      "refusal": {
+        "elapsed_seconds": 0.04483444099605549,
+        "new_attempt_receipts": false,
+        "new_child_launched": false,
+        "supervisor_returncode": 1
+      }
+    },
+    {
+      "case": "explicit-resume",
+      "completed_resume": {
+        "elapsed_seconds": 0.082668207003735,
+        "fallback_cleanup_used": false,
+        "pid_absent": true,
+        "process_group_absent": true,
+        "supervisor_returncode": 0,
+        "timing": {
+          "action": "resume",
+          "attempt": "resume-000002",
+          "child_reaped": true,
+          "completed_receipt_sha256": "8816a5c1624055cf452d4f5b4fa2a412b5e55a110e667ee8c6bde6f4ad613a5e",
+          "completed_receipt_valid": true,
+          "completion_error_type": null,
+          "elapsed_seconds": 0.03270876099850284,
+          "finished_unix": 1793941182.4878974,
+          "kill_sent": false,
+          "launcher_intent_sha256": "58e779f1d6fd17db78c7f837a4df67ace62ed0774c680219ecde171afd24b0f8",
+          "outer_timeout": false,
+          "pid": 22,
+          "process_group_guard_failed": false,
+          "returncode": 0,
+          "schema": 1,
+          "scope": "fixed-bounded-verifier-adoption-invocation",
+          "sources": {
+            "controller-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "deployment.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "expected-pins-before.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "expected-state-before.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "health.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "run.py": {
+              "bytes": 1254,
+              "sha256": "a6668cb87054cca90296a760842be3841a0c2dfc3d24de870fc49285a39249ad"
+            },
+            "scanner-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "transaction.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "verifier-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            }
+          },
+          "started_unix": 1793941182.455189,
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "a39b404123acea9015679a69544f62b58c8b50bcc4f7acef60806da4905ecf33",
+          "supervisor_error_type": null,
+          "term_sent": false
+        }
+      },
+      "completed_resume_no_new_proof": true,
+      "failed": {
+        "elapsed_seconds": 0.07517625000036787,
+        "fallback_cleanup_used": false,
+        "pid_absent": true,
+        "process_group_absent": true,
+        "supervisor_returncode": 1,
+        "timing": {
+          "action": "apply",
+          "attempt": "apply",
+          "child_reaped": true,
+          "completed_receipt_sha256": null,
+          "completed_receipt_valid": false,
+          "completion_error_type": null,
+          "elapsed_seconds": 0.03233998500218149,
+          "finished_unix": 1793941182.2958183,
+          "kill_sent": false,
+          "launcher_intent_sha256": "df6b52b74621152ed428b1bb5b58e0c933beaa4fada08703b0a2e819d5870d58",
+          "outer_timeout": false,
+          "pid": 18,
+          "process_group_guard_failed": false,
+          "returncode": 7,
+          "schema": 1,
+          "scope": "fixed-bounded-verifier-adoption-invocation",
+          "sources": {
+            "controller-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "deployment.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "expected-pins-before.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "expected-state-before.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "health.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "run.py": {
+              "bytes": 1254,
+              "sha256": "a6668cb87054cca90296a760842be3841a0c2dfc3d24de870fc49285a39249ad"
+            },
+            "scanner-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "transaction.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "verifier-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            }
+          },
+          "started_unix": 1793941182.2634788,
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "supervisor_error_type": null,
+          "term_sent": false
+        }
+      },
+      "prior_evidence_and_payloads_unchanged": true,
+      "resumed": {
+        "elapsed_seconds": 0.10776983499818016,
+        "fallback_cleanup_used": false,
+        "pid_absent": true,
+        "process_group_absent": true,
+        "supervisor_returncode": 0,
+        "timing": {
+          "action": "resume",
+          "attempt": "resume-000001",
+          "child_reaped": true,
+          "completed_receipt_sha256": "8816a5c1624055cf452d4f5b4fa2a412b5e55a110e667ee8c6bde6f4ad613a5e",
+          "completed_receipt_valid": true,
+          "completion_error_type": null,
+          "elapsed_seconds": 0.06458989600650966,
+          "finished_unix": 1793941182.4042022,
+          "kill_sent": false,
+          "launcher_intent_sha256": "cc714772503cce92d8372782273c60c9bf377aa45b043e9ecec82a0f4b4e84de",
+          "outer_timeout": false,
+          "pid": 20,
+          "process_group_guard_failed": false,
+          "returncode": 0,
+          "schema": 1,
+          "scope": "fixed-bounded-verifier-adoption-invocation",
+          "sources": {
+            "controller-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "deployment.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "expected-pins-before.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "expected-state-before.json": {
+              "bytes": 32,
+              "sha256": "73201db5dfa100250a559a439111724d978b5972290c4b38245e81f55a7dc343"
+            },
+            "health.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "run.py": {
+              "bytes": 1254,
+              "sha256": "a6668cb87054cca90296a760842be3841a0c2dfc3d24de870fc49285a39249ad"
+            },
+            "scanner-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "transaction.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            },
+            "verifier-candidate.py": {
+              "bytes": 21,
+              "sha256": "b1549de2768512a6de46d21c45730c0117420015552666f6da5775ed83bc4c9a"
+            }
+          },
+          "started_unix": 1793941182.339613,
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stdout_sha256": "a39b404123acea9015679a69544f62b58c8b50bcc4f7acef60806da4905ecf33",
+          "supervisor_error_type": null,
+          "term_sent": false
+        }
+      }
+    },
+    {
+      "case": "payload-mismatch",
+      "elapsed_seconds": 0.049202627000340726,
+      "existing_files_unchanged": true,
+      "new_attempt_receipts": false,
+      "new_child_launched": false,
+      "supervisor_returncode": 1
+    },
+    {
+      "case": "missing-reaped-receipt",
+      "elapsed_seconds": 0.04352385800302727,
+      "existing_files_unchanged": true,
+      "new_attempt_receipts": false,
+      "new_child_launched": false,
+      "supervisor_returncode": 1
+    },
+    {
+      "case": "unreaped-receipt",
+      "elapsed_seconds": 0.0417878490043222,
+      "existing_files_unchanged": true,
+      "new_attempt_receipts": false,
+      "new_child_launched": false,
+      "supervisor_returncode": 1
+    },
+    {
+      "case": "supervisor-lock-held",
+      "elapsed_seconds": 0.04127318900282262,
+      "existing_files_unchanged": true,
+      "new_attempt_receipts": false,
+      "new_child_launched": false,
+      "supervisor_returncode": 1
+    },
+    {
+      "case": "strict-json-payload-validation",
+      "malformed_values_rejected": 5,
+      "valid_payload_set_accepted": true
+    }
+  ],
+  "grace_seconds": 0.2,
+  "local_uid": 1000,
+  "no_hosts_cloud_or_credentials": true,
+  "outer_seconds": 0.2,
+  "schema": 1,
+  "supervisor_sha256": "5344def7b7c62603ae04174a7f6632421763cf75bc86bccab370c086cb1ebc68",
+  "supervisor_unchanged": true
+}
