@@ -1,0 +1,69 @@
+name: Rhea pilot on-disk acceptance (NON-DEPLOYABLE)
+
+on:
+  pull_request:
+    paths:
+      - 'cmd/pebble-format-v1/pilot/**'
+      - 'scripts/build_rhea_pilot_offline.py'
+      - 'tests/test_build_rhea_pilot_offline.py'
+      - '.github/workflows/rhea-pilot-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rhea-pilot-offline-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          cache: false
+      - name: Locks and complete Python regressions
+        run: |
+          python3 scripts/build_rhea_pilot_offline.py --check-sources
+          python3 -m unittest discover -s tests -q
+      - name: Explicit network cache priming in scratch (separate from offline build)
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          prime="$RUNNER_TEMP/pilot-prime"
+          mkdir -m 700 "$prime"
+          cp cmd/pebble-format-v1/pilot/deps/go.mod cmd/pebble-format-v1/pilot/deps/go.sum "$prime/"
+          cd "$prime"
+          export GOENV=off GOWORK=off GOTOOLCHAIN=local GOFLAGS=
+          export GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org
+          export GOPATH="$RUNNER_TEMP/pilot-gopath" GOMODCACHE="$RUNNER_TEMP/pilot-modules"
+          export GOCACHE="$RUNNER_TEMP/pilot-prime-build-cache"
+          go mod download
+      - name: Offline verified assembly, disk subprocesses, race, vet, ABI and MANIFEST parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 scripts/build_rhea_pilot_offline.py \
+            --go "$(command -v go)" \
+            --module-cache "$RUNNER_TEMP/pilot-modules" \
+            --output "$RUNNER_TEMP/pilot-NON-DEPLOYABLE"
+          git diff --exit-code
+          git diff --check
+      - name: Retain offline evidence for independent review
+        uses: actions/upload-artifact@v4
+        with:
+          name: pilot-NON-DEPLOYABLE-offline-evidence
+          path: |
+            ${{ runner.temp }}/pilot-NON-DEPLOYABLE/build-report.json
+            ${{ runner.temp }}/pilot-NON-DEPLOYABLE/abi.json
+            ${{ runner.temp }}/pilot-NON-DEPLOYABLE/sample-offline-fixture.json
+          if-no-files-found: error
+          retention-days: 14
