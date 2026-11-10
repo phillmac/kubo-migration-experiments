@@ -1,0 +1,76 @@
+name: Rhea root host adapter (offline only)
+
+on:
+  push:
+    branches:
+      - experiment/rhea-*
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/rhea-multi-sst-pilot-20261110.md'
+      - '.github/workflows/rhea-root-host-adapter.yml'
+  pull_request:
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/rhea-multi-sst-pilot-20261110.md'
+      - '.github/workflows/rhea-root-host-adapter.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-root-adapter:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      AWS_EC2_METADATA_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Absolute OpenSSL prerequisite
+        run: |
+          test -x /usr/bin/openssl
+          /usr/bin/openssl version
+      - name: Signed admission and root adapter focused suites
+        run: |
+          python3 -m unittest discover -s tests -p 'test_rhea_multi_sst_signed_admission.py' -v
+          python3 -m unittest discover -s tests -p 'test_rhea_multi_sst_root_host_adapter.py' -v
+      - name: Full Python regression suite
+        run: python3 -m unittest discover -s tests -q
+      - name: Compile, frozen source pins and disabled controller
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import sys
+          sys.path.insert(0, 'scripts')
+          import rhea_multi_sst_checkpoint_controller as c
+          import rhea_multi_sst_root_host_adapter as r
+          import rhea_multi_sst_signed_admission as a
+          for name in ('scripts/rhea_multi_sst_root_host_adapter.py',
+                       'scripts/rhea_multi_sst_signed_admission.py',
+                       'tests/test_rhea_multi_sst_root_host_adapter.py',
+                       'tests/test_rhea_multi_sst_signed_admission.py'):
+              compile(Path(name).read_bytes(), name, 'exec')
+          c.source_pins(Path.cwd())
+          pins = {'scripts/rhea_wasabi_lab_mount.py': r.WRAPPER_SHA256}
+          pins.update({'scripts/' + r.ARTIFACTS[role][0]: pin
+                       for role, pin in r.HISTORICAL_ARTIFACTS.items()})
+          for name, expected in pins.items():
+              assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == expected, name
+          assert c.INSTALLED_ADAPTER_SHA256 is None and c.ADMISSION_PUBLIC_KEY_SHA256 is None
+          assert a.PUBLIC_KEY_SHA256 is None and r.PROVISION_PUBLIC_KEY_SHA256 is None
+          PY
+          git diff --check
