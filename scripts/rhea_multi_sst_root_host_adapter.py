@@ -25,8 +25,8 @@ WRAPPER_SHA256 = '76635430d99daa65a816dc1ae444145bbdfe844559b4b4bed2e30fbae03025
 LEGACY_JOURNAL = TRUST / 'full-clone-steps/state.json'
 LEGACY_PINS = TRUST / 'full-clone-batch2-step-pins.json'
 LEGACY_PINS_SHA256 = '1c5e844a4252a63133ed32c78dc119064150510d517c5cbc7d75cf739cf83363'
-BASE_COMMIT = '5e3130097c1f02de944bf17403912fcb3b365537'
-VERSION = 'rhea-multi-sst-root-host-v2.1'
+BASE_COMMIT = '4b60910e7b5c901bae50c9dd69207f00b0e71eac'
+VERSION = 'rhea-multi-sst-root-host-v2.2'
 PROVISION_PUBLIC_KEY = INSTALL / 'deployment.pub'
 # No automatic provisioning or installed-test escape hatch. Independent review
 # must supply independently signed deployment/installation bytes and key pins.
@@ -38,6 +38,7 @@ ARTIFACTS = {
     'recovery': ('rhea_multi_sst_recovery_inspector.py', 0o600),
     'adapter': ('rhea_multi_sst_root_host_adapter.py', 0o600),
     'signed_admission': ('rhea_multi_sst_signed_admission.py', 0o600),
+    'reader_preflight': ('rhea_multi_sst_reader_preflight.py', 0o600),
     'writer': ('writer', 0o700),
     'admission_key': ('admission.pub', 0o600),
 }
@@ -195,8 +196,10 @@ def queue_health_from_observation(observation, space):
 class RootHostAdapter:
     version = VERSION
 
-    def __init__(self):
+    def __init__(self, *, mode='writer-active'):
         # There are no constructor DI parameters, fake hosts or installed test flags.
+        a.require(mode in ('writer-active', 'reader-restored'), 'unknown observation mode')
+        self._mode = mode
         self.deployment = validate_installation()
         self.wrapper = _load_exact(WRAPPER, WRAPPER_SHA256, '_rhea_multi_sst_pinned_historical_wrapper')
         self.controller = _load_exact(INSTALL / ARTIFACTS['controller'][0],
@@ -234,6 +237,23 @@ class RootHostAdapter:
         a.require(a.sha(a.protected_read(LEGACY_PINS)) == LEGACY_PINS_SHA256, 'legacy deployment pins changed')
         return raw
 
+    def observe_reader_restored(self):
+        """Read-only historical witness, OUTSIDE exclusive()/admission.
+
+        The historical health child acquires writer.lock itself. It cannot be
+        called through observe_host(), whose writer-active guard is preserved.
+        This unsigned observation never supplies HostAdapter readiness.
+        """
+        a.require(not self._locked and not self.host.locked,
+                  'reader health child forbidden while historical lock held')
+        a.require(validate_installation() == self.deployment, 'deployment changed')
+        self._mode = 'reader-restored'
+        reader = _load_exact(INSTALL / ARTIFACTS['reader_preflight'][0],
+            self.deployment['artifacts']['reader_preflight'], '_rhea_multi_sst_pinned_reader_preflight')
+        observed = reader.probe_reader_restored()
+        a.require(validate_installation() == self.deployment, 'deployment changed during reader probe')
+        return observed
+
     def observe_host(self):
         """Real locked observations; this is NOT a controller readiness assertion.
 
@@ -242,6 +262,8 @@ class RootHostAdapter:
         It does not independently prove all protected production source bytes.
         """
         self._require_lock()
+        a.require(getattr(self, '_mode', 'writer-active') == 'writer-active',
+                  'writer-active guard forbidden on parked reader; use observe_reader_restored outside lock')
         a.require(validate_installation() == self.deployment, 'deployment changed')
         legacy = self._legacy()
         self.host.guard(self.profile, True)
@@ -319,10 +341,14 @@ class RootHostAdapter:
         return self.observe_host()['health']
 
     def preflight(self, intent):
+        a.require(getattr(self, '_mode', 'writer-active') != 'reader-restored',
+                  'reader evidence is not admission; protected-source and signed integration pending')
         self.observe_host()
         raise a.Refusal('reader handoff and full protected-source proof pending reviewed integration')
 
     def protected_guards(self):
+        a.require(getattr(self, '_mode', 'writer-active') != 'reader-restored',
+                  'reader evidence cannot approve protected-source guards')
         self.observe_host()
         raise a.Refusal('full protected-source/production byte guards pending reviewed integration')
 
