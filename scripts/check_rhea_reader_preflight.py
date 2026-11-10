@@ -65,6 +65,8 @@ def check():
     for filename, pin in pins.items():
         assert hashlib.sha256((ROOT / filename).read_bytes()).hexdigest() == pin, filename
     assert reader.MAX_AGE == 120 and reader.IMMUTABLE_REPORT['maximum_rewrites'] == 9
+    assert reader.READER_ARGV_SHA256 == '5f26b553381556118778c7499234cb1e2ffcd6d21ca2c51af43cf302cf6cd65b'
+    assert reader.READER_EXECUTABLE_SHA256 == 'dc1ec3109000e4d36c8d14efac6d4c4158d1b860853cb75c09dcc9f6dded420b'
     assert controller.INSTALLED_ADAPTER_SHA256 is None and controller.ADMISSION_PUBLIC_KEY_SHA256 is None
     assert admission.PUBLIC_KEY_SHA256 is None and admission.KEY_NOT_BEFORE is None and admission.KEY_NOT_AFTER is None
     assert host.PROVISION_PUBLIC_KEY_SHA256 is None and host.PROVISION_KEY_NOT_BEFORE is None and host.PROVISION_KEY_NOT_AFTER is None

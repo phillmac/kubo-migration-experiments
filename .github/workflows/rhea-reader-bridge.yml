@@ -1,0 +1,88 @@
+name: Rhea reader bridge and partial crash rehearsal (offline)
+
+on:
+  push:
+    branches: ['experiment/rhea-*']
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/rhea-reader-bridge-integration-20261110.md'
+      - '.github/workflows/rhea-reader-bridge.yml'
+  pull_request:
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/rhea-reader-bridge-integration-20261110.md'
+      - '.github/workflows/rhea-reader-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      AWS_EC2_METADATA_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: OpenSSL and full offline Python suite
+        run: |
+          /usr/bin/openssl version
+          python3 -m unittest discover -s tests -q
+      - name: Immutable historical sources and disabled live entrypoints
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, 'scripts')
+          import rhea_multi_sst_checkpoint_controller as c
+          import rhea_multi_sst_root_host_adapter as h
+          import rhea_multi_sst_signed_admission as a
+          import rhea_multi_sst_reader_bridge as b
+          c.source_pins(Path.cwd())
+          for name, pin in b.TRANSITIVE_SOURCE_PINS.items():
+              assert a.sha(Path(name).read_bytes()) == pin, name
+          for role, pin in h.HISTORICAL_ARTIFACTS.items():
+              assert a.sha((Path('scripts') / h.ARTIFACTS[role][0]).read_bytes()) == pin
+          assert a.sha(Path('scripts/rhea_wasabi_lab_mount.py').read_bytes()) == h.WRAPPER_SHA256
+          assert c.INSTALLED_ADAPTER_SHA256 is None and c.ADMISSION_PUBLIC_KEY_SHA256 is None
+          assert a.PUBLIC_KEY_SHA256 is None and h.PROVISION_PUBLIC_KEY_SHA256 is None
+          for name in ('rhea_multi_sst_reader_bridge.py', 'rhea_multi_sst_version_snapshot.py'):
+              compile((Path('scripts') / name).read_bytes(), name, 'exec')
+          assert b.main() == 2
+          PY
+          git diff --check
+  go-fixture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+      - name: Populate dependencies in scratch, then use existing offline fixture/race harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          scratch="$RUNNER_TEMP/rhea-bridge-cache-prime"
+          cp -a cmd/pebble-format-v1 "$scratch"
+          cd "$scratch"
+          go mod tidy
+          module_cache="$(go env GOMODCACHE)"
+          cd "$GITHUB_WORKSPACE"
+          python3 scripts/test_rhea_multi_sst_offline.py --go "$(command -v go)" --module-cache "$module_cache"

@@ -34,10 +34,16 @@ def fixture():
                    ('reader_process', 'production_service_process', 'production_rc_process')},
         reader_cgroup='0::/system.slice/' + r.READER_UNIT + '\n',
         reader_cmdline=['/usr/bin/rclone', '--config',
-            '/root/.config/rclone/rhea-pebble-lab-reader-20261102.conf', 'mount',
-            'rhea_pebble_lab_reader:' + admission.BUCKET + '/rhea', r.READER_MOUNT,
-            '--read-only', '--cache-dir', r.CACHES[0]],
-        reader_exe='/usr/bin/rclone', reader_exe_sha256='a' * 64, mountinfo=[line],
+            '/root/.config/rclone/rhea-pebble-lab-reader-20261102.conf',
+            '--s3-no-check-bucket', '--s3-no-head-object', '--use-server-modtime', '--fast-list',
+            'mount', 'rhea_pebble_lab_reader:' + admission.BUCKET + '/rhea', r.READER_MOUNT,
+            '--cache-dir', r.CACHES[0], '--vfs-cache-mode', 'full',
+            '--vfs-cache-max-size', '24G', '--vfs-cache-max-age', '30m',
+            '--vfs-read-chunk-size', '8M', '--vfs-read-chunk-size-limit', '32M',
+            '--vfs-read-ahead', '0', '--buffer-size', '4M',
+            '--dir-cache-time', '12h', '--attr-timeout', '10m',
+            '--poll-interval', '0', '--stats', '5m', '--log-level', 'NOTICE'],
+        reader_exe='/usr/bin/rclone', reader_exe_sha256=r.READER_EXECUTABLE_SHA256, mountinfo=[line],
         open_users=[], cache_identities={p: dict(device=8, inode=i+100) for i, p in enumerate(r.CACHES)},
         protected_files=dict(r.PROTECTED_PINS), stop_present=False, writer_socket_present=False,
         file_identities={p: dict(device=8, inode=i+200, size=1024, mtime_ns=1, ctime_ns=1)
@@ -94,6 +100,19 @@ class ReaderEvidenceTests(unittest.TestCase):
         for key in r.IMMUTABLE_REPORT:
             with self.subTest(key=key), self.assertRaises(r.Refusal):
                 self.validate(self.changed_report(lambda d: d.update({key: 'tampered'})))
+
+    def test_real_certified_reader_command_is_not_readonly_fuse(self):
+        command = self.evidence['witness']['reader_cmdline']
+        self.assertNotIn('--read-only', command)
+        self.assertEqual(r.sha(r.canonical(command)), r.READER_ARGV_SHA256)
+        self.assertEqual(self.evidence['witness']['reader_exe_sha256'], r.READER_EXECUTABLE_SHA256)
+        restored = json.loads(self.evidence['restored_raw'])
+        self.assertIn('rw', restored['mount']['options'])
+        self.validate()
+        bad = copy.deepcopy(self.evidence)
+        bad['witness']['reader_cmdline'].insert(1, '--read-only')
+        with self.assertRaises(r.Refusal):
+            self.validate(bad)
 
     def test_bad_reader_pid_start_boot_and_kernel(self):
         for key, value in [('pid', 78503), ('start_ticks', '5054052'), ('boot_id', 'bad')]:
@@ -193,7 +212,7 @@ class ReaderEvidenceTests(unittest.TestCase):
             bad['witness'][key] = value
             with self.subTest(key=key), self.assertRaises(r.Refusal):
                 self.validate(bad)
-        for flag in ['--read-only', '--config', '--cache-dir']:
+        for flag in ['--config', '--cache-dir', '--vfs-cache-mode']:
             bad = copy.deepcopy(self.evidence)
             bad['witness']['reader_cmdline'].remove(flag)
             with self.subTest(flag=flag), self.assertRaises(r.Refusal):
