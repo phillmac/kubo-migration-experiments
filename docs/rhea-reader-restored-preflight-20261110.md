@@ -62,8 +62,15 @@ Extra lab mounts and lab mount users through cwd/root/exe/fds/maps refuse.
 Historical health additionally checks namespaces, service properties, protected
 inputs, production freeze, authenticated clean RC and other lab users under lock.
 The independent service check binds the process cgroup; it is not a second
-systemd RPC implementation. Retained FUSE mount options contain `rw`; the actual
-rclone command must have `--read-only`.
+systemd RPC implementation. **The certified reader FUSE mount has `rw` options,
+and its actual rclone command does not contain `--read-only`.** On-host root
+read-only acceptance testing confirmed that the reader's executable is
+58,268,944 bytes (SHA-256 `dc1ec3109000e4d36c8d14efac6d4c4158d1b860853cb75c09dcc9f6dded420b`).
+The verifier therefore uses a 64 MiB bounded executable read and requires
+the exact certified 36-argument command digest
+`5f26b553381556118778c7499234cb1e2ffcd6d21ca2c51af43cf302cf6cd65b`,
+plus the exact executable digest. Writer absence is enforced separately; the
+service name must never be treated as proof of a read-only FUSE mount.
 
 Exactly one possible child invocation exists:
 

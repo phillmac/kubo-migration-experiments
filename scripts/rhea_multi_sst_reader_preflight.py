@@ -39,6 +39,8 @@ CLOSE_SHA256 = '066cd75f6af19b51bbbbd647589203b26e9fb03e41b240b878401c405451152d
 LOCK = Path('/run/rhea-wasabi-lab/writer.lock')
 STOP = Path('/run/rhea-wasabi-lab/full-clone-step-budget-stop')
 READER_UNIT = 'rhea-pebble-lab-reader-fast-mount-20261102.service'
+READER_ARGV_SHA256 = '5f26b553381556118778c7499234cb1e2ffcd6d21ca2c51af43cf302cf6cd65b'
+READER_EXECUTABLE_SHA256 = 'dc1ec3109000e4d36c8d14efac6d4c4158d1b860853cb75c09dcc9f6dded420b'
 READER_MOUNT = '/mnt/rhea-pebble-lab-reader-20261102'
 WRITER_MOUNT = '/mnt/rhea-pebble-lab-writable-20261102'
 WRITER_SOCKET = Path('/run/rhea-wasabi-lab/full-clone.sock')
@@ -293,15 +295,15 @@ def validate_witness(witness, report, restored):
         return (command.count(name) == 1 and command.index(name) + 1 < len(command)
                 and command[command.index(name)+1] == value)
     require(type(command) is list and command and command[0] == '/usr/bin/rclone'
-            and '--read-only' in command and command.count('mount') == 1
+            and sha(canonical(command)) == READER_ARGV_SHA256 and command.count('mount') == 1
             and command.count(READER_MOUNT) == 1
             and 'rhea_pebble_lab_reader:' + a.BUCKET + '/rhea' in command
             and option('--config', '/root/.config/rclone/rhea-pebble-lab-reader-20261102.conf')
             and option('--cache-dir', CACHES[0]),
-            'reader command is not the separate read-only mount')
+            'reader command differs from the certified reader service')
     require(witness['reader_exe'] == '/usr/bin/rclone'
             and type(witness['reader_exe_sha256']) is str
-            and a.HEX.fullmatch(witness['reader_exe_sha256']), 'reader executable identity missing')
+            and witness['reader_exe_sha256'] == READER_EXECUTABLE_SHA256, 'reader executable identity differs')
     lines = witness['mountinfo']
     require(type(lines) is list and all(type(line) is str for line in lines), 'mountinfo missing')
     rows = [_mount_row(line) for line in lines]
@@ -490,7 +492,7 @@ def _snapshot():
     proc = Path('/proc') / str(restored['process']['pid'])
     exe = str((proc / 'exe').resolve(strict=True))
     require(exe == '/usr/bin/rclone', 'reader executable changed')
-    exe_raw = a.protected_read(Path(exe), mode=0o755, limit=32 * 1024**2)
+    exe_raw = a.protected_read(Path(exe), mode=0o755, limit=64 * 1024**2)
     caches = {}
     for path in CACHES:
         with a.protected_directory(Path(path)) as fd:
