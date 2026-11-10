@@ -1,0 +1,455 @@
+# Fixed full-clone stage controller
+
+`scripts/run_rhea_full_clone_steps.py` coordinates the already admitted,
+disposable Rhea clone from its certified format-003 checkpoint through deliberate
+preparatory stages and **one bounded marked rewrite per process**, with at most
+**five successful rewrites total / generation 9**. The current pacing window is
+four additional separately admitted units after certified generation 5. It does not start or
+stop services, run Kubo, touch the production bucket, remove a cache, retry a
+writer, or expose format-14 finalization. The original scratch stepper is
+unchanged. The full-clone mount uses the reviewed directory-cache setting
+described below.
+
+## Fixed inputs and deployment
+
+The only database is
+`/mnt/rhea-pebble-lab-writable-20261102/pebbleds`, on the guarded full-clone mount
+of `rhea-pebble-lab-20261101-39037c6f01/rhea`. Production Kubo and the walker must
+remain inactive, production rclone must remain active, and the unrelated
+`/data/ipfs` instance is left alone. The mount wrapper enforces these identities.
+
+Install reviewed, root-owned copies under
+`/root/.local/share/rhea-wasabi-lab-admin-20261101/`:
+
+- `run_rhea_full_clone_steps.py`
+- `realstep`, built from the exact reviewed Go sources and pinned Pebble adapter
+- `verify_rhea_full_clone.py`
+- the existing `rhea_wasabi_lab_mount.py` and `verify_rhea_lab_format3.py`
+
+The controller pins wrapper SHA-256
+`76635430d99daa65a816dc1ae444145bbdfe844559b4b4bed2e30fbae0302545`.
+The generic verifier separately pins the previously certified MANIFEST decoder.
+The controller must execute from its fixed trusted installation, and every
+dependency must pass the protected-path checks. It accepts no alternate host,
+bucket, prefix, executable, database, credential, socket, or journal path.
+
+`full-clone-step-pins.json` in that same directory is a root-owned mode-0600 file
+with exactly these fields. Substitute the independently verified digests of the
+three installed artifacts:
+
+```json
+{
+  "schema": 1,
+  "controller_sha256": "<64 lowercase hexadecimal characters>",
+  "go_sha256": "<64 lowercase hexadecimal characters>",
+  "verifier_sha256": "<64 lowercase hexadecimal characters>"
+}
+```
+
+Those pins, all fixed limits, the wrapper hash, and the seed certificate hash are
+bound into the migration journal. Changing code or limits does not silently
+readmit an existing journal.
+
+The seed is the already completed certificate at
+`format3-20261103/full-clone-format3-certified.json` under the trusted directory.
+Its exact-byte SHA-256 is
+`a7438699846ca71af61ad7c7622f9807be2846273c75fd3559730a51988f1eaf`.
+It records independent S3 closure verification and a generation-bound read-only
+reopen, with all 93,697 original SSTs and their exact inventory digest preserved.
+The controller checks this existing evidence; it does not repeat a broad
+synthetic campaign or make another full clone.
+
+### Isolated build and initial installation
+
+From the reviewed repository root, use the same Go 1.24 toolchain as CI. The
+following builds in a fresh private directory, verifies the downloaded module,
+and adds the picker adapter only to a disposable Pebble v1.1.3 copy:
+
+```bash
+set -euo pipefail
+umask 077
+lab_build="$(mktemp -d /tmp/rhea-realstep-build.XXXXXX)"
+cp -a cmd/pebble-format-v1 "$lab_build/command"
+cd "$lab_build/command"
+go version
+go mod tidy
+go mod download github.com/cockroachdb/pebble@v1.1.3
+go mod verify
+lab_pebble_source="$(go env GOMODCACHE)/github.com/cockroachdb/pebble@v1.1.3"
+test -f "$lab_pebble_source/format_major_version.go"
+cp -a "$lab_pebble_source" "$lab_build/pebble-v1.1.3"
+chmod -R u+w "$lab_build/pebble-v1.1.3"
+cp patches/demo_single_rewrite.go "$lab_build/pebble-v1.1.3/demo_single_rewrite.go"
+gofmt -w "$lab_build/pebble-v1.1.3/demo_single_rewrite.go"
+go mod edit -replace "github.com/cockroachdb/pebble=$lab_build/pebble-v1.1.3"
+go mod tidy
+go test -count=1 ./realstep ./reallab ./demo
+go build -trimpath -o "$lab_build/realstep" ./realstep
+go version -m "$lab_build/realstep"
+sha256sum "$lab_build/realstep"
+```
+
+Retain the exact source revision, adapter digest, test output, toolchain version,
+binary build information, and binary SHA-256 with the deployment receipt. The
+new picker tests exercise the additive adapter through a small in-memory
+database. These commands never invoke the fixed-host command against a database.
+
+For the first installation, hold the existing
+`/run/rhea-wasabi-lab/writer.lock` and require no running `realstep` process.
+Atomically install the reviewed controller and verifier as root-owned mode-0600
+files and the built `realstep` as a root-owned mode-0700 file in the fixed trusted
+directory. Preserve the existing wrapper, decoder, certified seed, admission
+journal, and cache. Install the mode-0600 pins file last, with the hashes of the
+exact installed bytes; fsync the files and trusted directory before releasing
+the lock. An existing `full-clone-steps/state.json` must already match those pins;
+changing a bound deployment requires separate reviewed reconciliation.
+
+### Four-unit continuation from certified generation 5
+
+The [4 November pacing plan](rhea-full-clone-pacing-20261104.md) retains the
+existing generation-5 certificate and permits four additional explicit `step`
+invocations, recording generations **6–9** and total successful rewrites **2–5**.
+Each invocation still closes one Go process and independently publishes,
+certifies, and reopens its own generation before another writer is admitted.
+An atomic input unit can contain multiple files; four units do not imply four
+files or a four-file reduction in marked work.
+
+The controller now reconciles journal generation, certificate generation,
+format, and cumulative lineage rewrite count, and enforces the next action and
+stage-directory identity. A reviewed deployment transition must preserve the
+exact generation-5 anchor, original failed-attempt/bridge provenance, prior
+state/pins, and all existing certificates. Update only the controller hash and
+the journal's `limits.maximum_rewrites` binding from **1 to 5**; the per-unit
+limits, Go/verifier/decoder, wrapper, admission, mount settings, and credentials
+remain unchanged. Do not reset or renumber the journal. The transition and final
+evidence must bind the fixed anchor and every subsequent parent link.
+
+No tail warmup is rerun for this format-013 continuation. The installed
+historical warmup helper remains unchanged and unused. Its old source/controller
+pin is retained with the earlier evidence; a repository-only embedded controller
+pin update keeps source compatibility and is not a deployment of that helper.
+
+Before the first controller dry run, the hostname's first label must be `rhea`
+(case-insensitive), the lab reader must be inactive, and the full-clone writer
+must be active through the existing guarded wrapper. Production Kubo and the
+walker remain inactive and production rclone remains active. The controller
+uses the same hostname rule as the wrapper. It creates its own state journal at
+`full-clone-steps/state.json` only when a stage is applied; it does not treat the
+reader-active/writer-inactive state as writable admission.
+
+### Reviewed transition to a 12-hour directory cache
+
+The full-clone unit adds only `--dir-cache-time 12h` to its existing command.
+This prevents repeated five-minute directory-cache expiry during long guarded
+operations; a cold listing can hold rclone's directory mutex beyond the RC
+timeout. The resume-fixture profile, writeback, cache budget, resource limits,
+RC timeout, and Go guards are unchanged. Complete an initial synchronous
+enumeration of the closed database metadata after remounting before starting a
+monitored Go operation; the new setting does not remove the first cold listing.
+
+An existing deployment must be transitioned while the writable mount is cleanly
+stopped, using the old trusted wrapper and its writer lock. Require no Pebble
+clients, a clean queue before stop, no mount/socket afterward, no unfinished
+controller stage, and exact matches to the old admitted unit and bound sources.
+Persist protected backups and a transition intent with the old/new digests
+before replacing any bound file. Update only these binding fields alongside
+the reviewed unit and source files:
+
+| Protected record | Fields changed |
+| --- | --- |
+| `admissions/full-clone.json` | `unit_sha256` |
+| `full-clone-steps/state.json` | `binding.wrapper_sha256`, `binding.controller_sha256` |
+| `full-clone-step-pins.json` | `controller_sha256` |
+| `warm-rhea-full-clone-tails-pins.json` | `helper_sha256` |
+
+Preserve every other admission field, the cache, existing checkpoint and evidence,
+generation, rewrite count, and absent pending stage. The Go binary and verifier
+pins remain unchanged. The helper's embedded controller hash changes with the
+controller; its reviewed warmup scheduling behavior stays intact. Install the
+pins last, fsync all replaced files and their directory entries, and retain a
+receipt proving the exact old/new bindings before releasing the lock. An
+unexpected digest or state prevents the transition; no general reconfiguration
+or readmission bypass is exposed.
+
+The historical format3 verifier file remains unchanged as the generic verifier's
+pinned pure MANIFEST decoder. Its original standalone CLI wrapper pin is not
+updated or used for this transition.
+
+## Explicit commands
+
+Each command defaults to a dry run. A dry run checks current host/queue/budget
+state and opens the Go tool **read-only** to inspect or plan; it never runs a
+writer or creates migration progress. Add `--apply` for the selected stage only.
+Each mutation stage has its own closed process, snapshot, upload sequence,
+independent remote certificate, and read-only reopen.
+
+| Command | Required format | Result | SST writes |
+| --- | --- | --- | --- |
+| `ratchet6` | 003 | 006 | Forbidden |
+| `ratchet7` | 006 | 007 | Forbidden |
+| `ratchet10` | 007 | 010 | Forbidden |
+| `ratchet13` | 010 | 013 | Forbidden |
+| `step` | 013 | 013, one authoritative marked rewrite | At most one selected atomic unit |
+
+For example, after the separately managed guarded mount is active:
+
+```console
+sudo python3 /root/.local/share/rhea-wasabi-lab-admin-20261101/run_rhea_full_clone_steps.py ratchet6
+sudo python3 /root/.local/share/rhea-wasabi-lab-admin-20261101/run_rhea_full_clone_steps.py ratchet6 --apply
+```
+
+The controller does not loop into the next stage. A later stage is admitted only
+after the preceding certificate is durable. Each `step` permits exactly one
+authoritative rewrite process. Once **five** successful rewrites have completed
+at **generation 9**, another `step` is refused. There is no batch writer,
+`finish`, `ratchet14`, or arbitrary action.
+Formats 6, 7, and 10 require zero marked files before their operation. If format 6
+discovers split-user-key work, format 7 remains blocked for deliberate review;
+the controller does not enter its potentially blocking rewrite migration.
+
+`status` reports the existing journal, current authenticated VFS observation,
+and any budget-stop sentinel. The mount wrapper's own `status` remains the
+independent lifecycle diagnostic if controller deployment inputs are unavailable.
+
+## Historical optional tail warmup at format 007
+
+This section describes the completed format-007 warmup and its historical
+installed helper. It is not invoked during the four-unit format-013 pacing
+continuation. The `7fbf…` helper below remains bound to its earlier controller
+source; its digest must not be used to install a different repository version.
+
+After `ratchet7` has a durable certificate and before `ratchet10`,
+`scripts/warm_rhea_full_clone_tails.py` can warm table metadata tails through the
+fixed full-clone FUSE mount. It requires certified format **007**, zero marked
+files, no unfinished stage, and a clean upload queue. It holds the existing
+writer lock and verifies the exact certified MANIFEST inventory and metadata,
+with matching read-only Go inspections before and after the reads.
+
+Install the reviewed helper as a root-owned mode-0600 file in the trusted
+directory. Its separate mode-0600 `warm-rhea-full-clone-tails-pins.json` contains:
+
+```json
+{
+  "schema": 1,
+  "helper_sha256": "7fbf8acf9454ff9bfda7ab133e93e64b554bbd74856077dd87d00bb3761eb926"
+}
+```
+
+The helper also checks its fixed controller source pin and the controller's
+existing deployment pins. The controller pins and migration journal stay intact.
+
+First run the deterministic 128-file pilot, spread across occupied levels:
+
+```console
+sudo python3 /root/.local/share/rhea-wasabi-lab-admin-20261101/warm_rhea_full_clone_tails.py
+```
+
+Review its successful receipt, timing, and before/after health observations.
+Then explicitly request the full inventory if the pilot supports proceeding:
+
+```console
+sudo python3 /root/.local/share/rhea-wasabi-lab-admin-20261101/warm_rhea_full_clone_tails.py --all
+```
+
+These helper commands perform reads immediately; they have no `--apply` mode.
+Eight workers keep at most eight reads outstanding. Each uses
+`O_RDONLY | O_NOFOLLOW` and `pread` for the last `min(64 KiB, certified size)`
+bytes. The pilot requests at most **8 MiB**; the full inventory is bounded by
+**93,697 files and 6,140,526,592 requested tail bytes (5.718811 GiB)**. These are
+logical tail-read bounds, excluding metadata inspection and filesystem/network
+overhead.
+
+Each authenticated health observation admits at most **128 tails / 8 MiB**. New
+submissions stop after **five seconds**, or at that file/byte bound, and all
+outstanding reads finish before the next RC observation. This avoids calling
+rclone's statistics endpoint while a cold FUSE directory lookup holds its
+directory mutex. The existing authenticated RC path and its timeout stay intact.
+
+While reads drain, the helper checks the local cache filesystem with `statvfs`
+every **one second**, independently of rclone. Observations require a clean
+queue, the pinned rclone PID, and 8 GiB of observed headroom beyond the 2 TiB
+free-space floor and below the 96 GiB cache allowance. Cache accounting has the
+cleaner lag described below. A read or health failure, or **120 seconds without
+a successful authenticated observation**, permanently stops submissions for
+that run. Existing read-only calls still finish; they are neither retried nor
+cancelled. The 120-second rule is an admission/failure limit, not a promise to
+interrupt a blocked `pread` or finish the process within that time. The helper
+neither advances the database format nor directly writes or purges cache files.
+
+The printed result identifies a protected receipt under
+`full-clone-steps/warmups/pilot-<time>-<pid>.json` or
+`full-clone-steps/warmups/full-<time>-<pid>.json` in the trusted directory.
+Receipts retain the checkpoint/MANIFEST bindings, selection digest, requested and
+completed bytes, per-level counts, timing, health observations, inspection
+reports, maximum observation gaps and drain durations, and any failure. Preserve the
+pilot receipt alongside the full-run receipt before proceeding to `ratchet10`.
+
+## Independent limits
+
+| Limit | Value and enforcement |
+| --- | --- |
+| Authoritative selected input | At most 256 MiB; Pebble's internal picker supplies the atomic unit, which is reselected and digest-checked under Pebble locks immediately before scheduling |
+| Cumulative SST output writes | At most 512 MiB, enforced within the Go filesystem adapter |
+| Cumulative metadata writes | At most 64 MiB, enforced separately within Go |
+| Filesystem reserve | 2 TiB; new work additionally reserves 832 MiB for input, SST output, and metadata |
+| Cache budget | 96 GiB in sampled authenticated telemetry; new work requires the same 832 MiB observed headroom |
+| Pending upload bytes | At most 768 MiB |
+| Pending upload files | At most 256 |
+| New-stage backlog | Exactly zero queued, uploading, or errored files, with `outOfSpace=false` |
+| Total successful rewrites / generation | At most five / nine, with one separately admitted writer per invocation |
+
+The controller requires explicit authenticated `diskCache.bytesUsed` telemetry;
+an unavailable statistic is not interpreted as zero. It polls every Go child's
+cache, queue, free space, and rclone PID every five seconds, including read-only
+inspection and planning because those reads can populate the cache. On a bound or
+health failure it durably requests an in-process stop through the fixed root-only
+file `/run/rhea-wasabi-lab/full-clone-step-budget-stop`. The Go read/write guards
+check that sentinel and return an error. The controller keeps waiting for the
+child; it does not send a termination signal, force-kill, restart, or clear the
+sentinel. Thus cache/backlog monitoring has a sampling interval, while the
+separate Go output and free-space checks remain authoritative for individual I/O.
+Failure to read or durably record a newly spawned writer's process identity also
+requests the sentinel and waits for that same child; it cannot escape supervision
+or cause a replacement writer to be launched.
+
+Rclone's `diskCache.bytesUsed` is its cached used-range total, refreshed by its
+cache cleaner. The admitted unit runs that cleaner every minute; polling RC
+every five seconds does not make this cache counter synchronous. The cache gate
+therefore has accounting lag as well as a polling interval. The Go write limits
+and cache-filesystem free-space checks remain independent synchronous guards.
+Format 10 reads table footers, metaindexes, and optional properties serially;
+those sparse tail reads can fit the cache while remote request latency still
+makes the stage long-running.
+
+Any sentinel or unsuccessful writer result blocks new work and requires reviewed
+reconciliation. An I/O stop can leave a partially advanced disposable generation;
+the error must not be relabelled a completed checkpoint.
+
+## Closed stages and publication
+
+The controller holds the existing root-protected lifecycle `writer.lock` across
+the stage. It validates the admitted mount, exact service/socket peer PID, absence
+of competing realstep processes and open database users, and current queue health.
+It durably records the intended action and prior checkpoint **before launching
+the writer**. Expected format, marked count, inventory digest, and the selected
+plan digest are passed to the fixed Go tool; no command text or extra arguments
+come from the database.
+
+A successful closed report must reconcile counts, byte totals, exact inventory,
+created and retired file identities, marked-file reduction, and compaction events.
+Preparatory stages must have no SST changes or compactions. A rewrite must have
+exactly one successful rewrite event, and its retired SSTs must match the
+authoritative selected input. An error, unrecognized state, budget violation,
+or changed plan stops further work.
+
+Every closed metadata file is copied to a root-owned, flat snapshot directory
+with mode 0700 and mode-0600 files. The snapshot is atomically published and
+checked against the live closed metadata again. Only newly created SSTs are
+stream-hashed locally, within the output cap; their hashes are retained unchanged
+for recovery. The entire original dataset is not downloaded.
+
+The admitted mount retains its existing two-hour automatic writeback. Marker
+deferral runs after the writer closes. A long open stage can therefore upload
+intermediate markers or metadata, and this procedure certifies closed checkpoints
+without claiming continuous consistency of the remote prefix. The independent
+before-marker pass requires every changed final publication marker to remain
+absent and fails closed if a final marker has already been uploaded.
+
+After close, pending markers are deferred for 24 hours. The controller then
+expedites and awaits exact queue entries in this order:
+
+1. Created SSTs.
+2. WALs.
+3. OPTIONS.
+4. MANIFESTs.
+5. CURRENT.
+
+Every expiry request rechecks the exact ID/name/size tuple, closed users, and the
+same authenticated Unix-socket PID. No TCP RC endpoint, batch wildcard, arbitrary
+duration, discard, or forced upload method is exposed.
+
+The independent verifier then establishes the new closed generation before
+publication. It preserves the exact identities of untouched original and
+earlier-created SSTs,
+retains historical pins for retired files, independently streams and hashes only
+newly created SSTs, and validates current metadata and MANIFEST closure. The
+prepublication proof and its canonical hash are journaled before any marker is
+expedited.
+
+Only the verifier's changed markers are published, in manifest-marker then
+format-marker order. For a same-format rewrite, the old format-013 marker already
+exists: the fresh MANIFEST marker is the publication barrier. Before every marker,
+the exact preverified metadata and created-SST identities are re-HEADed. Each
+published marker is independently read as a pinned empty S3 object. Final
+verification then certifies the complete remote generation.
+
+Both verifier passes enumerate the full versioned prefix for every unit.
+Created/retired lineage remains cumulative across units, including historical
+pins for an earlier output that is later retired. Only the current unit's new
+output payloads are streamed again. The `unchanged_sst_versions` counter includes
+surviving earlier-created outputs; reports must distinguish these from surviving
+original SSTs and label payload counters by verification pass.
+
+A fresh read-only Go `inspect` must match that certificate's format, marked count,
+exact inventory digest, count, and bytes. The mounted metadata must still match
+the closed snapshot already compared byte-for-byte with independent S3 reads.
+The combined certificate describes this reopen as using the guarded lab mount;
+it does not imply a fresh full-dataset download, complete block/pin reconciliation,
+or production cutover.
+
+## Journal and interrupted work
+
+Persistent evidence is under `full-clone-steps/` in the trusted directory:
+
+- `state.json`: bound checkpoint and any unfinished stage.
+- `stages/000001-ratchet6/` and subsequent fixed stage directories: writer output,
+  process receipt, closed snapshot, and created-SST hashes.
+- `checkpoints/000001-ratchet6.json` and subsequent immutable certificates.
+
+After the original `000005-step` certificate, the pacing continuation appends
+`000006-step` through `000009-step`. It preserves all original stage directories,
+the separately archived failed attempt, and its failed-close bridge. An existing
+stage directory always prevents launching its writer again.
+
+Journal files are written through private temporary files, fsynced, atomically
+replaced, and followed by directory and parent-directory fsyncs. An existing
+generation certificate is reused only if its stable identities match; it is not
+overwritten with a conflicting result.
+
+After interruption, use `recover-checkpoint` first without `--apply`. It refuses
+a still-running writer, loads the existing closed success report, and performs a
+read-only reopen against that report. Applying recovery resumes only snapshot,
+upload, publication, and verification work. **It never repeats the writer.**
+If publication was partially completed, it uses the durable prepublication proof
+and fresh version checks to finish remaining markers, then performs full final
+verification. It does not claim that unpublished markers are still absent.
+
+Missing or invalid writer output, a mismatched reopen, a budget error, substituted
+evidence, or unresolved host state remains blocked for reviewed recovery. Preserve
+the exact cache/configuration and frozen production source. If reconstruction is
+necessary, rebuild a consistent disposable generation from that source; do not
+copy old files over an unreconciled mixed-format directory.
+
+## Offline checks
+
+```console
+python3 -m unittest discover -s tests -p 'test_run_rhea_full_clone_steps.py' -v
+python3 -m unittest discover -s tests -p 'test_verify_rhea_full_clone.py' -v
+python3 -m unittest discover -s tests -p 'test_warm_rhea_full_clone_tails.py' -v
+python3 -m unittest discover -s tests
+```
+
+The focused tests cover stage ordering, durable intent and publication proof,
+one rewrite per process, the five-total/generation-nine ceiling, exact plan/delta
+validation, cumulative lineage and surviving earlier-output identities,
+independent budgets, no writer
+replay after interruption, partial-publication recovery, and the actual process
+monitor path requesting cooperative stop without signals or retry. They do not
+claim that a live full-clone rewrite has happened.
+
+The existing `standalone-format13.yml` workflow discovers the Python tests and
+also builds a disposable patched Pebble v1.1.3 module, runs
+`go test -count=1 ./realstep ./reallab ./demo`, and compiles `realstep`. Its pull
+request paths cover the new controller, verifier, tests, and all command/adapter
+sources, including the tail warmer and its scheduling regressions. This adds
+focused command and adapter coverage to the existing job.

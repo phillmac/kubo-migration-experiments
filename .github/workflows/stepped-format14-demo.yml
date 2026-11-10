@@ -1,0 +1,122 @@
+name: Standalone paced Pebble format14 demonstration
+
+on:
+  push:
+    branches: [experiment/standalone-pebble-format13-20261101]
+    paths:
+      - 'cmd/pebble-format-v1/demo/**'
+      - 'scripts/demonstrate_stepped_format14.py'
+      - '.github/workflows/stepped-format14-demo.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stepped-pebble-demo-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bounded-sst-rewrite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+      - name: Check Python harness and Go source formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -v
+          python3 -m py_compile scripts/demonstrate_stepped_format14.py
+          if ! command -v strace >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y strace
+          fi
+          strace -V | head -1
+      - name: Build isolated Pebble v1.1.3 stepper
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          base="$RUNNER_TEMP/kubo-scratch-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -m 700 "$base"
+          echo "LAB_BASE=$base" >> "$GITHUB_ENV"
+          cd cmd/pebble-format-v1
+          go mod tidy
+          go mod verify
+          # A disposable exact-version Pebble copy is needed because v1's
+          # marked-file picker is unexported. This is test-only, not a
+          # replacement in a running Kubo installation.
+          go mod download github.com/cockroachdb/pebble@v1.1.3
+          vendor_root="$(go env GOPATH)/pkg/mod/github.com/cockroachdb/pebble@v1.1.3"
+          test -f "$vendor_root/format_major_version.go"
+          copied="$base/pebble-v1.1.3-demo"
+          cp -a "$vendor_root" "$copied"
+          chmod -R u+w "$copied"
+          cp patches/demo_single_rewrite.go "$copied/demo_single_rewrite.go"
+          gofmt -w demo/main.go "$copied/demo_single_rewrite.go"
+          go mod edit -replace "github.com/cockroachdb/pebble=$copied"
+          go mod tidy
+          go build -trimpath -o "$base/pebble-demo" ./demo
+          sha256sum "$base/pebble-demo" | tee "$base/demo.sha256"
+      - name: Verify pinned official Kubo release binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          for version in 0.31.0 0.43.1; do
+            dir="$LAB_BASE/bin/$version"
+            mkdir -p "$dir"
+            file="kubo_v${version}_linux-amd64.tar.gz"
+            origin="https://github.com/ipfs/kubo/releases/download/v${version}"
+            curl --fail --location --silent --show-error --connect-timeout 15 --max-time 180 --output "$dir/$file" "$origin/$file"
+            curl --fail --location --silent --show-error --connect-timeout 15 --max-time 30 --output "$dir/$file.sha512" "$origin/$file.sha512"
+            python3 - "$dir/$file" "$version" <<'PY'
+          import hashlib,pathlib,re,sys,tarfile
+          pinned={'0.31.0':'28b534763361cc27c3a92e5dc4bc3683e276b695bdae80a5f8ae17f67b3f9712',
+                  '0.43.1':'8768c8a2907f429f177917091e8abe250d3368d1b82ea0348332cf7e53807bf0'}
+          p=pathlib.Path(sys.argv[1])
+          wanted=pathlib.Path(str(p)+'.sha512').read_text().split()[0].lower()
+          if not re.fullmatch('[0-9a-f]{128}',wanted):raise SystemExit('Invalid publisher checksum')
+          if hashlib.sha512(p.read_bytes()).hexdigest()!=wanted:raise SystemExit('SHA512 mismatch')
+          with tarfile.open(p,'r:gz') as tar:
+              m=tar.getmember('kubo/ipfs')
+              if not m.isfile() or m.size>512*1024*1024:raise SystemExit('Unexpected member')
+              exe=p.parent/'ipfs'
+              exe.write_bytes(tar.extractfile(m).read())
+              exe.chmod(0o500)
+          digest=hashlib.sha256(exe.read_bytes()).hexdigest()
+          if digest!=pinned[sys.argv[2]]:raise SystemExit('Pinned binary digest mismatch')
+          (p.parent/'binary.sha256').write_text(digest+'\n')
+          print('VERIFIED',sys.argv[2],digest)
+          PY
+          done
+      - name: Demonstrate incremental SST rewrite with closed checkpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=10s 780s \
+            sudo unshare --net --setgid="$(id -g)" --setuid="$(id -u)" -- \
+            env -i PATH=/usr/bin:/bin HOME="$LAB_BASE" \
+            /usr/bin/python3 "$GITHUB_WORKSPACE/scripts/demonstrate_stepped_format14.py" \
+              --base "$LAB_BASE" --groups 4 --keys-per-group 2048 \
+              --old "$LAB_BASE/bin/0.31.0/ipfs" --old-sha256 "$(cat "$LAB_BASE/bin/0.31.0/binary.sha256")" \
+              --target "$LAB_BASE/bin/0.43.1/ipfs" --target-sha256 "$(cat "$LAB_BASE/bin/0.43.1/binary.sha256")" \
+              --demo "$LAB_BASE/pebble-demo" --demo-sha256 "$(cut -d' ' -f1 "$LAB_BASE/demo.sha256")"
+      - name: Upload numerical evidence, never repo contents or raw traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stepped-pebble-format14-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/kubo-scratch-*/kubo-lab-*/evidence/*.json
+            ${{ runner.temp }}/kubo-scratch-*/demo.sha256
+            ${{ runner.temp }}/kubo-scratch-*/bin/*/binary.sha256
+          if-no-files-found: warn
+          retention-days: 14
