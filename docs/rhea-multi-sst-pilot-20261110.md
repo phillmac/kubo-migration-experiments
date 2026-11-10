@@ -154,7 +154,8 @@ Before any live admission, all of these remain required:
   adapter loader or writable caller-specified live path.
 - [ ] Real exact-version host adapter with authenticated reader/writer/RC/mount,
   protected source/production freeze checks, shared exclusive lock, durable nonce
-  consumption and admission signature verification. **UNIMPLEMENTED.**
+  consumption and admission signature verification. **Partial read-only source
+  implementation below; complete live integration remains UNIMPLEMENTED.**
 - [ ] Qualified cooperative child monitor and stop protocol; per-unit interruption,
   lost receipts, power loss during fsync/rename, closing failures and reader
   restoration tested against disposable lab state.
@@ -202,3 +203,152 @@ Local validation results will be recorded below after final self-review. The new
 Python unittest discovery, static compilation, frozen source pin checks and
 whitespace checks. Existing Go CI is unchanged. Offline tests do not qualify
 real host identity, Wasabi performance, publication interruption or root install.
+
+## Signed root adapter source milestone (10 November 2026)
+
+**NOT DEPLOYED / NOT LIVE TESTED. No generation-14 authorization.** This milestone
+adds source and offline tests on base commit
+`5e3130097c1f02de944bf17403912fcb3b365537`. The historical controller, inspector,
+wrapper, certificates, source pins, Go entry point and existing CI remain byte
+identical. Earlier references to a missing adapter mean a missing **qualified
+installed integration**; the following safe library portions now exist.
+
+`scripts/rhea_multi_sst_signed_admission.py` verifies detached **Ed25519**
+signatures with the absolute `/usr/bin/openssl pkeyutl -verify -pubin -rawin`
+executable. It requires a public-only Ed25519 SubjectPublicKeyInfo PEM, exact PEM
+SHA-256, trusted executable ownership/permissions, and a 64-byte signature.
+There is no Python cryptography dependency and no signing implementation. The
+OpenSSL child receives a clean environment, disabled ambient OpenSSL config,
+regular message/signature/public-key files in a private temporary directory,
+no shell, no stdin and a deadline. No private key enters shipping code.
+
+The exact signed message is the bytes
+`RHEA-MULTI-SST-ADMISSION-v1`, followed by one NUL byte, followed by canonical
+UTF-8 JSON: sorted keys, compact separators, no nonfinite numbers, one trailing
+newline. Duplicate keys, unknown fields and alternate encodings refuse. Claims
+bind the **SHA-256 of the entire canonical immutable intent**, the exact
+historical generation-13 certificate (`2d26a443de2cb899b3909cc53a815b670f61570022d69a576c73b0ed395b2774`),
+cap9/pending null and exact legacy journal bytes; one/two requested units; Rhea
+hostname and boot UUID; installed writer/controller/adapter/admission-module,
+source-table, deployment and installation hashes; bucket and `rhea/` prefix;
+actual mountinfo, process PID/start/executable/boot, root RC socket device/inode
+and authenticated peer PID/UID/GID, services and cloud account/ARN/user identity.
+The observed identities must equal the signed identities exactly.
+
+Issued/expiry times are integer Unix seconds with no future skew allowance,
+`issued <= now < expires`, at most 900 seconds lifetime, and the entire lifetime
+inside independently provisioned key validity. A signer must generate **32
+cryptographically random bytes** encoded as lowercase hex for the nonce. The
+verifier rejects short/degenerate nonces; no verifier can infer actual entropy
+from a single signed value. Signer randomness is an independent operational gate.
+
+Production verification accepts no caller key/path/clock/ownership parameters.
+It requires root and fixed `INSTALL/admission.pub`, root-owned 0600, regular,
+single-link, with nonsymlink root-owned trusted ancestors. The compiled public-key
+SHA-256 and validity are deliberately **unprovisioned**. Pure offline APIs accept
+explicit test parameters; production calls never expose those parameters. Tests
+use disposable OpenSSL Ed25519 private keys only inside test temporary directories
+and remove those directories on completion; no key is committed or installed.
+
+`RootHostAdapter.authenticate_admission` verifies a fixed `admission.json` and
+`admission.sig`, then consumes its nonce **before** the engine could retain an
+intent. Consumption requires the actual historical `RealHost.lock`, sharing
+`/run/rhea-wasabi-lab/writer.lock` with prior controllers. In addition to the
+wrapper's lock state, nonce code probes exclusion and checks `/proc/locks` for
+the current PID's exclusive flock on that exact device/inode. Unknown or hidden
+kernel lock evidence refuses. The independently provisioned
+`INSTALL/consumed-nonces` must already be root-owned 0700. Traversal uses directory
+FDs and `O_NOFOLLOW`; the nonce record uses `O_CREAT|O_EXCL|O_NOFOLLOW`, 0600,
+file fsync, parent-directory fsync and readback. It retains claims/signature hashes
+and the nonce. An existing name, including a symlink or partial record, is never
+reused. Unknown/torn records anywhere in the nonce store block fresh admissions.
+Failure after creation burns the nonce even before journal intent; there is no
+automatic deletion, repair, rollback or retry. Durable replay protection assumes
+the root store is preserved and not rolled back from a snapshot; disaster recovery
+must preserve consumed evidence or revoke the old signing authority before reuse.
+
+`scripts/rhea_multi_sst_root_host_adapter.py` validates **two independently signed
+fixed-path manifests**, `deployment.json/.sig` and `installation.json/.sig`, using
+`INSTALL/deployment.pub` with a separately provisioned compiled key pin and key
+validity. This public key must differ from the admission key. Both signatures use
+the `RHEA-MULTI-SST-DEPLOYMENT-v1` plus NUL domain and bind their distinct scopes,
+issue/expiry, Rhea boot, fixed install path, base commit, exact artifact hashes,
+source-table digest and exact initial legacy-journal digest. Installation also
+binds the deployment's raw SHA-256. Actual artifact permissions/bytes, all frozen
+sources and historical wrapper bytes are checked before module execution; the
+historical controller/inspector also have immutable baseline pins. The wrapper
+is loaded from its fixed historical root path by compiling the exact checked
+bytes, pinned to
+`76635430d99daa65a816dc1ae444145bbdfe844559b4b4bed2e30fbae0302545`.
+There is no self-signing provisioner or unsigned-manifest readiness path.
+
+Manifest hashes are measured from independently authenticated bytes and then
+bound by admission. They are not embedded into adapter source hashed by the same
+manifest, which would create an unsatisfiable hash cycle. For the same reason,
+the existing intent's `admission_sha256` has a precise adapter interpretation:
+the SHA-256 of canonical `{scope: "rhea-gen14-one-batch", deployment_sha256: D,
+installation_sha256: I}`. It is an authorization-descriptor digest, not the digest
+of claims which themselves hash the entire intent. The detached signature always
+covers the full intent hash including this descriptor field.
+
+Under the shared lock, `observe_host` revalidates the installation and exact
+legacy journal, generation13/rewrites9/cap9/pending null, legacy deployment pins,
+then calls the real pinned wrapper's `guard`, `no_open_users` and `observe`.
+These perform actual protected rclone/config/ledger checks, production-unit freeze
+checks, competitor/mount/process checks, fresh STS and bucket-versioning identity,
+and peer-credential-checked Unix RC stats/queue requests. The adapter also binds
+raw mountinfo, socket inode/device and PID start/boot/executable identity and
+rechecks identities/journal after observation. Queue health is deliberately
+limited to a **clean** authenticated queue: missing/malformed counters, pending
+uploads/transfers/errors, out-of-space, >96 GiB cache or <2 TiB free all refuse.
+It never interprets unavailable backlog bytes as zero for a nonempty queue.
+
+The full-clone wrapper checks a previously admitted writable FUSE mount and
+requires the separate reader service inactive. Its rclone PID is explicitly the
+**mount process**, not proof of the controller's database reader. No method here
+claims to qualify the separate reader handoff, all protected production source
+bytes or a full remote generation/version proof. `preflight` and
+`protected_guards` perform real observations and then **explicitly refuse** those
+missing integrations. A successfully verified signature or host observation
+therefore cannot make the controller ready.
+
+| Capability / gate | Implemented source behavior | Operational status |
+|---|---|---|
+| Detached admission verification | Real OpenSSL Ed25519, strict binding/time/key checks | Offline tested; production key pin/validity absent |
+| Independent deployment + installation | Two signed fixed-path manifests, actual byte/permission/source checks | Offline tested; no provisioner or trusted manifests installed |
+| Shared writer exclusion + nonce | Historical RealHost lock, own-PID flock proof, exclusive durable record | Offline tested; root store/power-loss/host qualification outstanding |
+| Host, legacy anchor, service, mount, process, RC, cloud identity | Real pinned read-only checks and exact signed comparison | No live commands executed; host/cloud qualification outstanding |
+| Queue health | Authenticated clean-queue counters and free/cache bounds | Offline tested; continuous monitoring/backlog integration absent |
+| Full protected-source and production byte guards | Explicit refusal after available observations | Blocker |
+| Separate reader and writer handoff | Explicit refusal; no stop/start path | Blocker |
+| Go child, continuous monitor, close/snapshot, data drain | Explicit refusal; no subprocess writer launch | Blocker |
+| Marker publication, reader reopen/restart | Explicit refusal | Blocker |
+| Independent recovery | Fresh locked host observation; manual finding only | Local MANIFEST/SST and cloud proofs absent; no certifiability |
+| Controller/live CLI | Historical controller remains disabled; both new CLIs return 2 without host construction | NOT DEPLOYED / NOT LIVE TESTED |
+
+`ReadOnlyRecoveryObserver` is independently read-only and rereads current host
+state, rather than trusting retained success flags. It always supplies a manual
+finding, has no mutation methods and explicitly refuses closed snapshot/cloud/
+reopen proof. Passing it to the historical inspector cannot satisfy that
+inspector's guard/admission/stop requirements and cannot yield certifiability.
+An absent/stopped/changed mount or missing observation remains a refusal; this
+observer does not reconcile a crashed batch or authorize restore.
+
+Before enabling any library use on Rhea: independently review source and Python
+bootstrap/import trust; provision separate offline signing authorities, fixed
+public-key pins/validity and signed manifests; qualify strict root ownership,
+lock contention, socket/process replacement, boot changes and durable nonce
+behavior on the actual host/OpenSSL 3.0.13. Full protected-source/production byte
+proof, separate reader identity/handoff, cooperative child supervision, marker
+withholding/drain, per-unit crash recovery and independently scoped cloud proofs
+remain blockers. No source flag or environment variable enables them. The
+controller has no adapter loader, its installation/key sentinels stay unset, and
+its live CLI remains disabled even if new trust files were copied into place.
+
+The new `.github/workflows/rhea-root-host-adapter.yml` checks `/usr/bin/openssl`,
+runs focused signed-admission/adapter suites and full Python discovery on Ubuntu
+22.04/24.04, compiles the new sources/tests in memory, verifies frozen baseline
+source/wrapper/controller/inspector pins and checks disabled/unprovisioned gates.
+It changes no existing workflow and has no credentials, deploy or live job.
+Local results below use OpenSSL 3.5.5; CI and real-host 3.0 qualification must not
+be inferred from local results. These tests prove offline behavior only.
