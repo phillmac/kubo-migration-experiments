@@ -296,7 +296,11 @@ func TestPilotDiskSecondInterruptionAndClose(t *testing.T) {
 			jdir := t.TempDir()
 			o, code := diskChild(t, dir, jdir, mode, req)
 			r := o.Report
-			if code != 23 || !r.Closed || r.After.Marked != 1 || len(r.Units) != 1 || r.PhysicalCompactions != 1 || r.AttemptedUnit == nil || r.StopReason != "recovery-required" { t.Fatalf("interrupted subprocess %d: %+v", code, r) }
+			if code != 23 || r.After.Marked != 1 || len(r.Units) != 1 || r.PhysicalCompactions != 1 || r.AttemptedUnit == nil || r.StopReason != "recovery-required" || r.Error == "" { t.Fatalf("interrupted subprocess %d: %+v", code, r) }
+			// An interrupted compaction may also prevent a clean Pebble Close().
+			// Whether r.Closed is true or false, the error, attempted unit, and
+			// recovery-required stop state MUST prohibit certification/replay.
+			if mode == "monitor-second" && r.IO.BlockedBudgetError == "" { t.Fatal("monitor revocation not retained") }
 			assertJournal(t, jdir, o, "pending.json", "unit-001-intent.json", "unit-001-receipt.json", "unit-002-intent.json", "unit-002-failed.json", "closed.json")
 			after, plan := inspectDisk(t, dir)
 			if !equalState(after, r.After) { t.Fatal("failed rewrite state not durable") }
