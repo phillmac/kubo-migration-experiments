@@ -1,0 +1,71 @@
+name: Rhea multi-SST candidate (offline only)
+
+on:
+  push:
+    branches:
+      - experiment/rhea-multi-sst-batch-*
+    paths:
+      - 'cmd/pebble-format-v1/multistep/**'
+      - 'cmd/pebble-format-v1/patches/**'
+      - 'scripts/verify_rhea_multi_sst_candidate.py'
+      - 'tests/test_verify_rhea_multi_sst_candidate.py'
+      - 'scripts/test_rhea_multi_sst_offline.py'
+      - '.github/workflows/rhea-multi-sst-candidate.yml'
+  pull_request:
+    paths:
+      - 'cmd/pebble-format-v1/multistep/**'
+      - 'cmd/pebble-format-v1/patches/**'
+      - 'scripts/verify_rhea_multi_sst_candidate.py'
+      - 'tests/test_verify_rhea_multi_sst_candidate.py'
+      - 'scripts/test_rhea_multi_sst_offline.py'
+      - '.github/workflows/rhea-multi-sst-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rhea-multi-sst-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  offline-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+      - name: Python regression suite
+        run: python3 -m unittest discover -s tests -q
+      - name: Exact Pebble v1.1.3 isolated Go build and cross-language proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          base="$RUNNER_TEMP/rhea-multisst-${{ github.run_id }}-${{ github.run_attempt }}"
+          mkdir -m 700 "$base"
+          cd cmd/pebble-format-v1
+          go mod download github.com/cockroachdb/pebble@v1.1.3
+          original="$(go env GOMODCACHE)/github.com/cockroachdb/pebble@v1.1.3"
+          test -f "$original/format_major_version.go"
+          cp -a "$original" "$base/pebble-v1.1.3"
+          chmod -R u+w "$base/pebble-v1.1.3"
+          cp patches/demo_single_rewrite.go "$base/pebble-v1.1.3/demo_single_rewrite.go"
+          gofmt -w "$base/pebble-v1.1.3/demo_single_rewrite.go"
+          go mod edit -replace "github.com/cockroachdb/pebble=$base/pebble-v1.1.3"
+          go mod tidy
+          test -z "$(gofmt -l multistep/*.go)"
+          go test -count=1 ./realstep ./reallab ./demo ./multistep
+          go vet ./realstep ./reallab ./demo ./multistep
+          go test -race -count=1 ./multistep
+          RHEA_MULTI_FIXTURE_OUTPUT="$base/genuine-fixture.json" go test -count=1 -run '^TestTwoGenuineSequentialRewritesAndClosedReopen$' ./multistep
+          test -s "$base/genuine-fixture.json"
+          python3 "$GITHUB_WORKSPACE/scripts/verify_rhea_multi_sst_candidate.py" --offline-go-fixture "$base/genuine-fixture.json"
+          go build -trimpath -o "$base/disabled-multistep" ./multistep
+          sha256sum "$base/disabled-multistep"
+          echo 'Offline fixture and production-disable gate passed. No live credentials or host access.'
