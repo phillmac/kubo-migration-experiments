@@ -1,0 +1,53 @@
+name: Rhea checkpoint controller (offline Python only)
+
+on:
+  push:
+    branches:
+      - experiment/rhea-multi-sst-*
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/rhea-multi-sst-pilot-20261110.md'
+      - '.github/workflows/rhea-multi-sst-controller.yml'
+  pull_request:
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/rhea-multi-sst-pilot-20261110.md'
+      - '.github/workflows/rhea-multi-sst-controller.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-controller:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      AWS_EC2_METADATA_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Focused controller and inspector suite
+        run: python3 -m unittest discover -s tests -p 'test_rhea_multi_sst_checkpoint_controller.py' -v
+      - name: Full Python regression suite
+        run: python3 -m unittest discover -s tests -q
+      - name: Static compilation, frozen source pins and whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ('scripts/rhea_multi_sst_checkpoint_controller.py',
+                       'scripts/rhea_multi_sst_recovery_inspector.py',
+                       'tests/test_rhea_multi_sst_checkpoint_controller.py'):
+              compile(Path(name).read_bytes(), name, 'exec')
+          PY
+          python3 scripts/rhea_multi_sst_checkpoint_controller.py status
+          git diff --check
