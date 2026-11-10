@@ -1,5 +1,10 @@
 # Rhea Pebble multi-SST checkpoint pilot — 10 November 2026
 
+Next source milestone: [reader-restored preflight and dry-run handoff planner](rhea-reader-restored-preflight-20261110.md),
+on base `4b60910e7b5c901bae50c9dd69207f00b0e71eac`. It adds independent
+reader evidence and proposed postconditions while keeping admission, handoff and
+the production CLI disabled. **NOT DEPLOYED / NOT LIVE TESTED.**
+
 ## Status and scope
 
 **Implemented as an isolated, offline-tested candidate. NOT DEPLOYED / NOT LIVE TESTED. No live controller, mount, bucket, production Kubo or walker has been changed.**

@@ -1,0 +1,52 @@
+name: Rhea reader preflight and planner (offline only)
+
+on:
+  push:
+    branches:
+      - experiment/rhea-*
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/evidence/**'
+      - 'docs/rhea-reader-restored-preflight-20261110.md'
+      - '.github/workflows/rhea-reader-preflight.yml'
+  pull_request:
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/evidence/**'
+      - 'docs/rhea-reader-restored-preflight-20261110.md'
+      - '.github/workflows/rhea-reader-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-reader-preflight:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      AWS_EC2_METADATA_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Reader, planner, signed admission and adapter focused suites
+        run: |
+          python3 -m unittest discover -s tests -p 'test_rhea_multi_sst_reader_preflight.py' -v
+          python3 -m unittest discover -s tests -p 'test_rhea_multi_sst_signed_admission.py' -q
+          python3 -m unittest discover -s tests -p 'test_rhea_multi_sst_root_host_adapter.py' -q
+      - name: Full Python regression suite
+        run: python3 -m unittest discover -s tests -q
+      - name: AST lint, immutable source pins and disabled gates
+        run: |
+          python3 scripts/check_rhea_reader_preflight.py
+          git diff --check
