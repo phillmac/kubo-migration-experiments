@@ -1,0 +1,72 @@
+name: Rhea gen14 marker isolation gate (offline)
+
+on:
+  push:
+    branches: ['experiment/rhea-*']
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/rhea-gen14-marker-gate-20261111.md'
+      - '.github/workflows/rhea-marker-gate-offline.yml'
+  pull_request:
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/rhea-gen14-marker-gate-20261111.md'
+      - '.github/workflows/rhea-marker-gate-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-python:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      AWS_EC2_METADATA_DISABLED: 'true'
+      AWS_ACCESS_KEY_ID: ''
+      AWS_SECRET_ACCESS_KEY: ''
+      AWS_SESSION_TOKEN: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Full offline Python regression suite
+        run: |
+          /usr/bin/openssl version
+          python3 -m unittest discover -s tests -q
+      - name: Source pins, Python syntax, disabled live APIs and whitespace
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, 'scripts')
+          import rhea_multi_sst_marker_gate as gate
+          import rhea_multi_sst_marker_gate_inspector as inspector
+          gate.source_pins(Path.cwd())
+          assert gate.admission.PUBLIC_KEY_SHA256 is None
+          assert gate.root.PROVISION_PUBLIC_KEY_SHA256 is None
+          assert gate.c.INSTALLED_ADAPTER_SHA256 is None
+          runtime = object.__new__(gate.RootQueueRuntime)
+          for name in ('authenticate_marker_admission', 'open_writer', 'selected_queue_expiry',
+                       'publish_markers', 'restore_reader'):
+              try:
+                  getattr(runtime, name)()
+              except gate.Refusal:
+                  pass
+              else:
+                  raise AssertionError(name + ' unexpectedly enabled')
+          for directory in ('scripts', 'tests'):
+              for path in Path(directory).glob('*.py'):
+                  compile(path.read_bytes(), str(path), 'exec')
+          assert gate.main() == inspector.main() == 2
+          PY
+          git diff --check
