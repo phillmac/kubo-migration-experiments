@@ -1,0 +1,131 @@
+{
+  "checkpoint_sha256": "2d26a443de2cb899b3909cc53a815b670f61570022d69a576c73b0ed395b2774",
+  "current_generation": 13,
+  "files": [
+    {
+      "path": "docs/evidence/rhea-batch2-000010-certificate-20261107.json",
+      "sha256": "6a8d7fbbd46fa26102eafe3d803b1a65286d5331c9eaaa2a3656c3e51907c0fc",
+      "size": 6963
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000010-writer-20261107.json",
+      "sha256": "139d419dc4da7a5626687a586aefef4563295caffa09c456b7ab50394b9b1d8d",
+      "size": 1487
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000010-operation-20261107.json",
+      "sha256": "632769af3acbfadd0afd7099100d6886c54db24b2c4406f4ff92f0e8081af992",
+      "size": 7711
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000010-timing-20261107.json",
+      "sha256": "54d1e6e9be58214352e8d56ca52212d712604672651ea6c989574829934165ec",
+      "size": 6149
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000011-certificate-20261107.json",
+      "sha256": "c4cbad183a4646a148fe74275c4fab6dbfbf4abaf1501e814725913e80158b9a",
+      "size": 7402
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000011-writer-20261107.json",
+      "sha256": "82a15cf61f56e45c2da468926c9153ee595f115e1fbca2a6e42d6bf33ad8aed3",
+      "size": 1487
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000011-operation-20261107.json",
+      "sha256": "d2e1c69104e1bc1872512df8c588ddb08c81bc071126e4ce6c2b00842db38b03",
+      "size": 8148
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000011-timing-20261107.json",
+      "sha256": "a43504683f3c763c746edc294f1a0a96244f81195721a31b6a957a986452cbd7",
+      "size": 6596
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000012-certificate-20261107.json",
+      "sha256": "10d0b19e80d9b449b9d8f6334414e5fd7a83bfb25117432a3d12acfa9d801fbe",
+      "size": 7843
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000012-writer-20261107.json",
+      "sha256": "75d35cd59521f8c50c1b97a16ebe65754590bc65df27daf8132b8d7b7f69c5fc",
+      "size": 1485
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000012-operation-20261107.json",
+      "sha256": "82c3e86ea30a2d9d2a1ab04767dd89a9ea522db003860895aab8838263fd9759",
+      "size": 8592
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000012-timing-20261107.json",
+      "sha256": "1ebab34660e09659f0ae8d67049a92a138972ec8673986c9ac59b1fc155dfa43",
+      "size": 7044
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000013-certificate-20261107.json",
+      "sha256": "2d26a443de2cb899b3909cc53a815b670f61570022d69a576c73b0ed395b2774",
+      "size": 8282
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000013-writer-20261107.json",
+      "sha256": "61d982874eb88503a22f092c53f077ee6da8ce96fb83c9687f0fb587e3626d18",
+      "size": 1487
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000013-operation-20261107.json",
+      "sha256": "2cb7f33a456beb371f0e229eac9f0a4e393c5029571b5edd82bad32c39a40ef9",
+      "size": 9031
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000013-timing-20261107.json",
+      "sha256": "ec71be5be0334a4cd738142e40af96814472350a1f0c99b828b46cd2a006a3b8",
+      "size": 7493
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000010-review-20261107.json",
+      "sha256": "81f73cb2fc8e18144c846360dbd3c6717e97389f880cda912cb1799e7f80bc77",
+      "size": 737
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000011-review-20261107.json",
+      "sha256": "7a7dfb4b5e7731e334972a8cb640681b8419704764270a9e4d4735cba86800fa",
+      "size": 737
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-000012-review-20261107.json",
+      "sha256": "28720c7b4d9c135db11b111778cd6a59d7e2e226618914a3c2b2333d44be5c81",
+      "size": 737
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-reader-finalization-20261107.json",
+      "sha256": "4803afbd28b0e9bf6d2e0de4213b809735c1d1d4b743dd4e6489fb29e7ef6fd3",
+      "size": 4741
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-final-health-20261107.json",
+      "sha256": "1b9bbb212b76304dc889bbb947966dd15d95eda0712e9b1aa08548e0cb3bae45",
+      "size": 2889
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-fresh-health-20261110.json",
+      "sha256": "e206b2eeb7c5974a8d8cfe156531a3a88b3d33edc55f164240217653446d2d0c",
+      "size": 3036
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-gen11-dispatch-reconciliation-20261107.json",
+      "sha256": "8c4bc74f58681920e5950204f8af9e9cad21a37361e3a1bd59293870d4852640",
+      "size": 905
+    },
+    {
+      "path": "docs/evidence/rhea-batch2-fresh-reader-reopen-20261107.json",
+      "sha256": "29c8a687af804d021107925a837f6f693561a4d1bbe60c77b4099738d51fc60b",
+      "size": 3866
+    }
+  ],
+  "remaining_marks": 93686,
+  "schema": 1,
+  "scope": "rhea-batch2-publication-index",
+  "source_commit": "fccc14dca36d72258f90c723506d674e310ff976",
+  "state_sha256": "c1563e322c496ca479c26501ef3f8ae2b71091565ee8fa227e24b4292f2cd90c"
+}
