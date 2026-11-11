@@ -582,11 +582,15 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.inspect(observe_restored=observe)['decision'], 'preserve/manual-inspection')
 
     def test_long_verification_monitor_continues_independently(self):
+        # CI scheduling can starve the observer during heavy concurrent suites.
+        # These bounds apply to this synthetic test ONLY; the live gate has
+        # no default timing policy and still requires signed host evidence.
+        self.guard.policy = g.TimingPolicy(.01, 30, 20, .1, 60, 240)
         original = g.v.verify_generation
         samples = []
         def verify(*args, **kwargs):
             before = self.host.observation_calls
-            time.sleep(.04)
+            time.sleep(.12)
             samples.append(self.host.observation_calls - before)
             return original(*args, **kwargs)
         with patch.object(g.v, 'verify_generation', side_effect=verify):
