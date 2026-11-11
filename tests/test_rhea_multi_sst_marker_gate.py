@@ -130,7 +130,7 @@ class GateTests(unittest.TestCase):
                for name, pin in self.fx.previous['remote_metadata'].items()}
         self.old = old
         self.batch = g.ClosedBatch.build(self.fx.metadata, old, self.fx.report, self.fx.hashes, self.fx.previous)
-        self.policy = g.TimingPolicy(.01, 5, 3, .1, 10, 120)
+        self.policy = g.TimingPolicy(.01, 30, 15, .2, 60, 240)
         now = time.monotonic()
         self.isolation = dict(mechanism='preopen-marker-put-denial', identity_sha256=g.c.digest(identity()),
             batch_sha256=self.batch.sha256, enforced_since=now - 20, writer_opened=now - 19,
@@ -312,11 +312,11 @@ class GateTests(unittest.TestCase):
 
     def test_stale_queue(self):
         with self.assertRaisesRegex(Exception, 'stale'):
-            self.sample(lambda e: e.update(started=e['started'] - 5))
+            self.sample(lambda e: e.update(started=e['started'] - self.guard.policy.maximum_age - 2))
 
     def test_monitor_gap(self):
         self.sample()
-        self.guard.last_stamp -= 10
+        self.guard.last_stamp -= self.guard.policy.maximum_gap + 2
         with self.assertRaisesRegex(Exception, 'monitoring gap'):
             self.sample()
 
