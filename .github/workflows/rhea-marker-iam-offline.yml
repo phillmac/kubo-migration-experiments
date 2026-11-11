@@ -1,0 +1,85 @@
+name: Rhea gen14 marker IAM acceptance (offline only)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/rhea-gen14-marker-iam-20261111.md'
+      - '.github/workflows/rhea-marker-iam-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python: ['3.12', '3.13']
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      AWS_EC2_METADATA_DISABLED: 'true'
+      AWS_ACCESS_KEY_ID: ''
+      AWS_SECRET_ACCESS_KEY: ''
+      AWS_SESSION_TOKEN: ''
+      AWS_SHARED_CREDENTIALS_FILE: /dev/null
+      AWS_CONFIG_FILE: /dev/null
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Full offline suite, frozen sources, compile and disabled live mutation report
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/openssl version
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+          import sys
+          import unittest
+
+          sys.path.insert(0, 'scripts')
+          import rhea_multi_sst_marker_iam as iam
+          import rhea_multi_sst_marker_gate as gate
+          import rhea_multi_sst_marker_gate_inspector as inspector
+
+          gate.source_pins(Path.cwd())
+          assert iam.PRODUCTION_TRUST_SHA256 is None
+          assert gate.admission.PUBLIC_KEY_SHA256 is None
+          assert gate.root.PROVISION_PUBLIC_KEY_SHA256 is None
+          assert gate.c.INSTALLED_ADAPTER_SHA256 is None
+          runtime = object.__new__(gate.RootQueueRuntime)
+          for name in ('authenticate_marker_admission', 'open_writer', 'selected_queue_expiry',
+                       'publish_markers', 'restore_reader'):
+              try:
+                  getattr(runtime, name)()
+              except gate.Refusal:
+                  pass
+              else:
+                  raise AssertionError(name + ' unexpectedly enabled')
+          compiled = 0
+          for directory in ('scripts', 'tests'):
+              for path in Path(directory).glob('*.py'):
+                  compile(path.read_bytes(), str(path), 'exec')
+                  compiled += 1
+          assert iam.main() == gate.main() == inspector.main() == 2
+          suite = unittest.defaultTestLoader.discover('tests')
+          result = unittest.TextTestRunner(verbosity=1).run(suite)
+          report = dict(schema=1, python=sys.version.split()[0], tests=result.testsRun,
+                        failures=len(result.failures), errors=len(result.errors), skipped=len(result.skipped),
+                        compiled_sources=compiled, frozen_sources_verified=True,
+                        live_mutation=False, deployment_authorized=False, actual_enforcement_proven=False,
+                        status='PASS' if result.wasSuccessful() else 'FAIL',
+                        source_sha256=hashlib.sha256(Path('scripts/rhea_multi_sst_marker_iam.py').read_bytes()).hexdigest())
+          print(json.dumps(report, sort_keys=True))
+          raise SystemExit(0 if result.wasSuccessful() else 1)
+          PY
+          git diff --check
