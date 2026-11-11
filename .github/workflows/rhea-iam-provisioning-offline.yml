@@ -1,11 +1,14 @@
-name: Rhea IAM provisioning plan and acceptance (offline only)
+name: Rhea IAM user provisioner and frozen acceptance (offline only)
 
 on:
   pull_request:
     paths:
       - 'scripts/**.py'
+      - 'scripts/run_rhea_gen14_iam.sh'
       - 'tests/**.py'
       - 'docs/rhea-gen14-marker-iam-20261111.md'
+      - 'docs/rhea-gen14-iam-credentials-20261111.md'
+      - 'docs/rhea-gen14-iam-wrapper-20261111.md'
       - '.github/workflows/rhea-iam-provisioning-offline.yml'
   workflow_dispatch:
 
@@ -39,6 +42,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          bash -n scripts/run_rhea_gen14_iam.sh
           /usr/bin/openssl version
           python3 - <<'PY'
           from contextlib import redirect_stdout

@@ -4,7 +4,10 @@ on:
   pull_request:
     paths:
       - 'scripts/run_rhea_gen14_iam.sh'
+      - 'scripts/rhea_gen14_create_iam_credentials.py'
       - 'tests/test_rhea_gen14_iam_wrapper.py'
+      - 'tests/test_rhea_gen14_create_iam_credentials.py'
+      - 'docs/rhea-gen14-iam-credentials-20261111.md'
       - 'docs/rhea-gen14-iam-wrapper-20261111.md'
       - '.github/workflows/rhea-iam-wrapper-offline.yml'
   workflow_dispatch:
@@ -39,26 +42,7 @@ jobs:
           git diff --check
       - name: All offline Python regressions
         run: python3 -m unittest discover -s tests -q
-      - name: Refusal of live credential provisioning
-        run: |
-          set -euo pipefail
-          set +e
-          private_dir="$(mktemp -d)"
-          chmod 0700 "$private_dir"
-          trap 'rm -rf -- "$private_dir"' EXIT
-          for file in run_rhea_gen14_iam.sh rhea_gen14_iam_admin_acceptance.py rhea_multi_sst_marker_iam.py rhea_multi_sst_signed_admission.py; do
-            install -m 0600 "scripts/$file" "$private_dir/$file"
-          done
-          /usr/bin/bash "$private_dir/run_rhea_gen14_iam.sh" provision > "$private_dir/refusal.json"
-          result="$?"
-          set -e
-          test "$result" -eq 2
-          python3 - "$private_dir/refusal.json" <<'PY'
-          import json,sys
-          with open(sys.argv[1], encoding='utf-8') as stream:
-              answer = json.load(stream)
-          assert answer['result'] == 'REFUSED'
-          assert answer['credentials'] == 'NOT_ACCESSED'
-          assert answer['actual_enforcement_proven'] is False
-          print('LIVE_IAM_REFUSED_AS_DESIGNED')
-          PY
+      # Never invoke the real provision/verify CLI, including under root CI.
+      # Tests replace the config, state, SDK, and wrapper dispatch target locally.
+      - name: Fake IAM and STS provisioning tests with sockets blocked
+        run: python3 -B -m unittest discover -s tests -p 'test_rhea_gen14_create_iam_credentials.py' -v
