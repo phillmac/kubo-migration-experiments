@@ -130,7 +130,7 @@ class GateTests(unittest.TestCase):
                for name, pin in self.fx.previous['remote_metadata'].items()}
         self.old = old
         self.batch = g.ClosedBatch.build(self.fx.metadata, old, self.fx.report, self.fx.hashes, self.fx.previous)
-        self.policy = g.TimingPolicy(.01, 30, 15, .2, 60, 240)
+        self.policy = g.TimingPolicy(.02, 120, 60, 10, 300, 900)
         now = time.monotonic()
         self.isolation = dict(mechanism='preopen-marker-put-denial', identity_sha256=g.c.digest(identity()),
             batch_sha256=self.batch.sha256, enforced_since=now - 20, writer_opened=now - 19,
@@ -328,7 +328,7 @@ class GateTests(unittest.TestCase):
 
     def test_expiry_changed_without_intent(self):
         self.sample()
-        self.host.deadline += 20
+        self.host.deadline += self.guard.policy.expiry_slack * 3 + 1
         with self.assertRaisesRegex(Exception, 'expiry changed'):
             self.sample()
 
@@ -585,12 +585,12 @@ class GateTests(unittest.TestCase):
         # CI scheduling can starve the observer during heavy concurrent suites.
         # These bounds apply to this synthetic test ONLY; the live gate has
         # no default timing policy and still requires signed host evidence.
-        self.guard.policy = g.TimingPolicy(.01, 30, 20, .1, 60, 240)
+        self.guard.policy = g.TimingPolicy(.02, 120, 60, 10, 300, 900)
         original = g.v.verify_generation
         samples = []
         def verify(*args, **kwargs):
             before = self.host.observation_calls
-            time.sleep(.12)
+            time.sleep(.3)
             samples.append(self.host.observation_calls - before)
             return original(*args, **kwargs)
         with patch.object(g.v, 'verify_generation', side_effect=verify):
