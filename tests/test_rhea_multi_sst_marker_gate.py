@@ -311,8 +311,12 @@ class GateTests(unittest.TestCase):
         self.run_fails('free space')
 
     def test_stale_queue(self):
+        # Move the TEST clock forward. Subtracting from monotonic uptime can
+        # produce an invalid negative timestamp on a fresh CI runner.
+        evidence = self.host.observe()
+        late = evidence['started'] + self.guard.policy.maximum_age + 2
         with self.assertRaisesRegex(Exception, 'stale'):
-            self.sample(lambda e: e.update(started=e['started'] - self.guard.policy.maximum_age - 2))
+            self.guard.sample(evidence, late)
 
     def test_monitor_gap(self):
         self.sample()
