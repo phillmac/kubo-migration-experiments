@@ -29,6 +29,7 @@ MARKER = re.compile(r'marker\.(?:manifest\.[0-9]{6,}\.MANIFEST-[0-9]{6,}'
                     r'|format-version\.[0-9]{6,}\.[0-9]{3})\Z')
 DOMAIN = 'rhea-gen14-marker-iam-v1'
 PRODUCTION_TRUST_SHA256 = None  # Never provisionable through caller input/env.
+SUPPORTED_CONDITION_KEYS = frozenset({'s3:prefix'})  # Only keys this builder uses.
 
 
 class Refusal(RuntimeError):
@@ -150,10 +151,10 @@ def build_policies(bindings: Bindings, publication_keys: tuple[str, ...], *,
         actions = object_actions + (['s3:DeleteObject', 's3:AbortMultipartUpload',
                                      's3:ListMultipartUploadParts'] if writer else [])
         prefixes = [PREFIX + '*'] if writer else [PREFIX + k for k in PUBLICATION]
-        bound = {'StringEquals': {'aws:PrincipalArn': bindings.arn(role)}}
+        # These are identity-attached policies. Wasabi's IAM support list does
+        # not include aws:PrincipalArn; attachment binds the identity, not an
+        # undocumented condition. Signer verification belongs in the sidecar.
         rows = [
-            statement('WrongIdentity', 'Deny', actions=['*'], resources=['*'],
-                      condition={'StringNotEquals': {'aws:PrincipalArn': bindings.arn(role)}}),
             statement('NoLateralResources', 'Deny', actions=['s3:*'],
                       not_resources=[BUCKET_ARN, *objects]),
             statement('NoOtherAPIs', 'Deny', not_actions=[*actions, *lists, *bucket_reads,
@@ -162,13 +163,13 @@ def build_policies(bindings: Bindings, publication_keys: tuple[str, ...], *,
                       condition={'StringNotLike': {'s3:prefix': prefixes}}),
             statement('NoMissingListingPrefix', 'Deny', actions=lists, resources=[BUCKET_ARN],
                       condition={'Null': {'s3:prefix': 'true'}}),
-            statement('ReadBucket', 'Allow', actions=bucket_reads, resources=[BUCKET_ARN], condition=bound),
+            statement('ReadBucket', 'Allow', actions=bucket_reads, resources=[BUCKET_ARN]),
             statement('ListScopedVersions', 'Allow', actions=lists, resources=[BUCKET_ARN],
-                      condition={**bound, 'StringLike': {'s3:prefix': prefixes}}),
+                      condition={'StringLike': {'s3:prefix': prefixes}}),
         ]
         if writer:
             rows.extend([
-                statement('DataOperations', 'Allow', actions=actions, resources=objects, condition=bound),
+                statement('DataOperations', 'Allow', actions=actions, resources=objects),
                 statement('NeverPublishOrRemoveMarkers', 'Deny',
                           actions=['s3:PutObject', 's3:DeleteObject', 's3:DeleteObjectVersion',
                                    's3:AbortMultipartUpload'], resources=PROTECTED),
@@ -176,11 +177,14 @@ def build_policies(bindings: Bindings, publication_keys: tuple[str, ...], *,
         else:
             rows.extend([
                 statement('ReadMarkerVersions', 'Allow', actions=['s3:GetObject', 's3:GetObjectVersion'],
-                          resources=objects, condition=bound),
+                          resources=objects),
                 statement('ExactPublicationOnly', 'Allow', actions=['s3:PutObject'],
-                          resources=writes, condition=bound),
+                          resources=writes),
                 statement('NoOtherPublication', 'Deny', actions=['s3:PutObject'], not_resources=writes),
             ])
+        require(all(key in SUPPORTED_CONDITION_KEYS for row in rows
+                    for terms in row.get('Condition', {}).values() for key in terms),
+                'unsupported policy condition key')
         documents.append(canonical(dict(Version='2012-10-17', Statement=rows)))
     return Policies(bindings, keys, current_change_sha256, *documents)
 
@@ -263,7 +267,7 @@ def acceptance_cases(policies):
     cases = []
 
     def add(role, operation, action, resource, expected, *, prefix=None):
-        context = {'aws:PrincipalArn': policies.bindings.arn(role)}
+        context = {}
         if prefix is not None:
             context['s3:prefix'] = prefix
         cases.append(Case(f'case-{len(cases):04d}', role, operation, action, resource,
@@ -346,8 +350,8 @@ class WasabiValidatePolicyDI:
         require(sha(raw) == request['PolicySha256'], 'evaluator policy hash mismatch')
         rows = []
         for case in request['Cases']:
-            require(case['context'].get('aws:PrincipalArn') == request['PrincipalArn'],
-                    'ValidatePolicy evaluates the signing principal only')
+            require(set(case['context']) <= SUPPORTED_CONDITION_KEYS,
+                    'unsupported evaluator condition context')
             query = wasabi_validate_request(raw, case['action'], case['resource'])
             result = getattr(self, role).evaluate_read_only(query, expected_context=dict(case['context']))
             require(type(result) is dict and result.get('Decision') in ('ALLOW', 'DENY')
