@@ -1,4 +1,5 @@
 """Offline security tests for pinned Wasabi IAM wrapper (no credentials or SDK)."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,7 @@ FILES = (
     "rhea_gen14_iam_admin_acceptance.py",
     "rhea_multi_sst_marker_iam.py",
     "rhea_multi_sst_signed_admission.py",
+    "rhea_gen14_create_iam_credentials.py",
 )
 
 
@@ -57,12 +59,46 @@ class WrapperAcceptanceTests(unittest.TestCase):
         self.assertFalse(result["plan"]["live_enabled"])
         self.assertNotIn("rhea-pebble-lab-20261101-39037c6f01", r.stdout)
 
-    def test_every_mutating_mode_refuses(self):
-        for mode in ("provision", "accept", "cleanup", "lockout"):
+    def test_disabled_modes_refuse(self):
+        for mode in ("accept", "cleanup", "lockout"):
             with self.subTest(mode=mode):
                 r = self.run_mode(mode)
                 self.assertEqual(r.returncode, 2)
                 self.assertEqual(json.loads(r.stdout)["result"], "REFUSED")
+
+    def test_provision_and_verify_dispatch_only_to_harmless_local_standin(self):
+        # Even under root CI, never execute real provision/verify. Replace the
+        # module, repin its bytes, and mock only this temporary wrapper's root
+        # and ancestor checks. Production wrapper retains all checks unchanged.
+        module = self.directory / "rhea_gen14_create_iam_credentials.py"
+        original_sha = hashlib.sha256(module.read_bytes()).hexdigest()
+        module.write_text('import json, os, sys\n'
+                          'assert "AWS_ACCESS_KEY_ID" not in os.environ\n'
+                          'print(json.dumps({"fixture": "NO_SDK_NO_CREDENTIALS", "mode": sys.argv[1]}))\n')
+        wrapper = self.wrapper.read_text().replace(original_sha, hashlib.sha256(module.read_bytes()).hexdigest())
+        wrapper = wrapper.replace('[[ "$OWNER" == 0 ]]', '[[ 1 == 1 ]]')
+        wrapper = wrapper.replace('while [[ "$ancestor" != / ]]; do', 'while false; do')
+        self.wrapper.write_text(wrapper)
+        for mode in ("provision", "verify"):
+            result = self.run_mode(mode, additional_env={"AWS_ACCESS_KEY_ID": "CANARY"})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout),
+                             {"fixture": "NO_SDK_NO_CREDENTIALS", "mode": mode})
+
+    def test_new_module_is_hash_pinned(self):
+        with (self.directory / "rhea_gen14_create_iam_credentials.py").open("ab") as stream:
+            stream.write(b"\n# modified\n")
+        result = self.run_mode("status")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("source hash mismatch", result.stderr)
+
+    def test_root_required_without_executing_real_provisioner(self):
+        # Force the wrapper's id result to nonroot in a private test copy.
+        self.wrapper.write_text(self.wrapper.read_text().replace(
+            '[[ "$OWNER" == 0 ]]', '[[ 1000 == 0 ]]'))
+        result = self.run_mode("provision")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("require root", result.stderr)
 
     def test_no_arbitrary_mode_or_extra_arguments(self):
         for args in ((), ("apply",), ("plan", "secret.json"), ("status", "--config", "/tmp/x")):
@@ -96,6 +132,12 @@ class WrapperAcceptanceTests(unittest.TestCase):
         r = self.run_mode("status")
         self.assertEqual(r.returncode, 2)
         self.assertIn("unsafe mode", r.stderr)
+
+    def test_unsafe_wrapper_mode_is_refused(self):
+        os.chmod(self.wrapper, 0o640)
+        result = self.run_mode("status")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("unsafe mode: run_rhea_gen14_iam.sh", result.stderr)
 
     def test_environment_values_are_not_exposed(self):
         env = dict(AWS_ACCESS_KEY_ID="CANARY_ACCESS_NEVER_PRINT",
