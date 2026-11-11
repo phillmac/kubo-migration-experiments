@@ -1,0 +1,87 @@
+name: Rhea IAM provisioning plan and acceptance (offline only)
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/**.py'
+      - 'tests/**.py'
+      - 'docs/rhea-gen14-marker-iam-20261111.md'
+      - '.github/workflows/rhea-iam-provisioning-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python: ['3.12', '3.13']
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      AWS_EC2_METADATA_DISABLED: 'true'
+      AWS_ACCESS_KEY_ID: ''
+      AWS_SECRET_ACCESS_KEY: ''
+      AWS_SESSION_TOKEN: ''
+      AWS_PROFILE: ''
+      AWS_SHARED_CREDENTIALS_FILE: /dev/null
+      AWS_CONFIG_FILE: /dev/null
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Compile, verify gates and run full offline regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/openssl version
+          python3 - <<'PY'
+          from contextlib import redirect_stdout
+          import io
+          import json
+          from pathlib import Path
+          import sys
+          import unittest
+
+          sys.path.insert(0, 'scripts')
+          import rhea_gen14_iam_admin_acceptance as admin
+          import rhea_multi_sst_marker_iam as iam
+          import rhea_multi_sst_marker_gate as gate
+
+          gate.source_pins(Path.cwd())
+          assert iam.PRODUCTION_TRUST_SHA256 is None
+          assert admin.ROOT_ACCOUNT is None
+          assert admin.ROOT_APPROVAL_PUBLIC_KEY_SHA256 is None
+          assert admin.ROOT_INSTALLED_SOURCE_SHA256 is None
+          assert gate.admission.PUBLIC_KEY_SHA256 is None
+          assert gate.root.PROVISION_PUBLIC_KEY_SHA256 is None
+          assert gate.c.INSTALLED_ADAPTER_SHA256 is None
+          try:
+              admin.real_acceptance()
+          except admin.Refusal:
+              pass
+          else:
+              raise AssertionError('unprovisioned root gate enabled')
+          for mode in ('temporary-test-bucket', 'provision', 'accept', 'cleanup', 'lockout'):
+              with redirect_stdout(io.StringIO()):
+                  assert admin.main([mode]) == 2
+          compiled = 0
+          for directory in ('scripts', 'tests'):
+              for path in Path(directory).glob('*.py'):
+                  compile(path.read_bytes(), str(path), 'exec')
+                  compiled += 1
+          result = unittest.TextTestRunner(verbosity=1).run(unittest.defaultTestLoader.discover('tests'))
+          print(json.dumps(dict(tests=result.testsRun, failures=len(result.failures),
+                errors=len(result.errors), skipped=len(result.skipped), compiled_sources=compiled,
+                frozen_sources_verified=True, plan_sha256=admin.plan_sha256(),
+                live_mutation=False, credential_access=False, root_execution_tested=False,
+                actual_enforcement_proven=False, deployment_authorized=False,
+                status='PASS' if result.wasSuccessful() else 'FAIL'), sort_keys=True))
+          raise SystemExit(0 if result.wasSuccessful() else 1)
+          PY
+          git diff --check

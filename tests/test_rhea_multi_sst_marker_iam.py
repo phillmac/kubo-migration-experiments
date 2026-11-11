@@ -69,8 +69,7 @@ class PolicyTests(unittest.TestCase):
         self.p = policies()
 
     def decide(self, role, action, resource, **context):
-        ctx = {'aws:PrincipalArn': self.p.bindings.arn(role), **context}
-        return m.simulate(self.p.document(role), action, resource, ctx, inherited_allow=True)
+        return m.simulate(self.p.document(role), action, resource, context, inherited_allow=True)
 
     def test_canonical_and_deterministic(self):
         self.assertEqual(self.p, policies())
@@ -81,6 +80,9 @@ class PolicyTests(unittest.TestCase):
             self.assertNotIn('Principal', self.p.document(role))
             for row in self.p.document(role)['Statement']:
                 self.assertNotIn('Principal', row)
+                for terms in row.get('Condition', {}).values():
+                    self.assertLessEqual(set(terms), {'s3:prefix'})
+            self.assertNotIn(b'aws:PrincipalArn', raw)
 
     def test_immutable_bytes_and_detached_document(self):
         with self.assertRaises(FrozenInstanceError):
@@ -189,12 +191,12 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(self.decide('publisher', 's3:ListBucketVersions', m.BUCKET_ARN,
                                      **{'s3:prefix': m.PREFIX + 'marker.manifest.'}), 'ALLOW')
 
-    def test_wrong_and_missing_principal_denied_even_with_inherited_allow(self):
+    def test_identity_attachment_does_not_use_principal_condition_context(self):
         for role in ('writer', 'publisher'):
             for context in ({}, {'aws:PrincipalArn': 'arn:aws:iam::999999999999:user/alien'},
                             {'aws:PrincipalArn': self.p.bindings.arn('publisher' if role == 'writer' else 'writer')}):
                 self.assertEqual(m.simulate(self.p.document(role), 's3:GetObject', m.OBJECT_ARN + KEY,
-                                             context, inherited_allow=True), 'DENY')
+                                             context, inherited_allow=True), 'ALLOW')
 
     def test_all_cases_locally_agree_under_inherited_allow(self):
         for c in m.acceptance_cases(self.p):
@@ -347,15 +349,18 @@ class WasabiBridgeTests(unittest.TestCase):
 
         class FakeEndpoint:
             # A synthetic decoder/transport, not a service enforcement proof.
+            def __init__(self, role):
+                self.role = role
+
             def evaluate_read_only(self, query, *, expected_context):
                 owner.calls.append((query, expected_context))
                 decision = m.simulate(json.loads(query['PolicyDocument']), query['UseAction'],
                                       query['UseResource'], expected_context, inherited_allow=True)
                 return owner.hook(dict(Decision=decision, RequestSha256=m.digest(query),
-                            PrincipalArn=expected_context['aws:PrincipalArn'], EvaluatedContext=expected_context,
+                            PrincipalArn=owner.p.bindings.arn(self.role), EvaluatedContext=expected_context,
                             Propagation='CONFIRMED', Source='WASABI_VALIDATE_POLICY'))
 
-        self.bridge = m.WasabiValidatePolicyDI(FakeEndpoint(), FakeEndpoint(), self.p.bindings)
+        self.bridge = m.WasabiValidatePolicyDI(FakeEndpoint('writer'), FakeEndpoint('publisher'), self.p.bindings)
 
     def run_validation(self):
         return m.validate_read_only(self.p, writer_sts=FakeSTS(self.p, 'writer'),
@@ -372,7 +377,7 @@ class WasabiBridgeTests(unittest.TestCase):
             self.assertEqual(query['IsPrincipal'], 'true')
             self.assertEqual(query['UseService'], query['UseAction'].split(':')[0])
             self.assertNotIn('s3:prefix', query)
-            self.assertIn(context['aws:PrincipalArn'], (self.p.bindings.arn('writer'), self.p.bindings.arn('publisher')))
+            self.assertLessEqual(set(context), {'s3:prefix'})
 
     def test_no_return_status_unknown_and_syntax_success_fail_closed(self):
         for response in ({}, {'IsValid': True}, None, {'Decision': 'UNKNOWN'}):
@@ -380,7 +385,7 @@ class WasabiBridgeTests(unittest.TestCase):
             self.assertEqual(self.run_validation().status, 'REFUSED')
 
     def test_actual_context_and_independent_propagation_required(self):
-        for field, value in (('EvaluatedContext', {}), ('Propagation', 'UNKNOWN'), ('Source', 'LOCAL_SIMULATOR'),
+        for field, value in (('EvaluatedContext', {'unsupported': 'context'}), ('Propagation', 'UNKNOWN'), ('Source', 'LOCAL_SIMULATOR'),
                              ('PrincipalArn', self.p.bindings.arn('publisher')), ('RequestSha256', '0' * 64)):
             with self.subTest(field=field):
                 self.hook = lambda r, f=field, v=value: {**r, f: v}
