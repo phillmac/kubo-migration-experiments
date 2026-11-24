@@ -1,12 +1,33 @@
 # Rhea live IAM/S3 acceptance and the next migration gate
 
+## Recorded live result — 25 November 2026 (Sydney)
+
+**PASS: 207 of 207 service checks, including 123 explicit permission denials.**
+The run completed at 09:26:45 AEDT (22:26:45 UTC on 24 November). Both scoped
+identities matched their records. Conditional publication returned the required
+412 responses for an existing-key create and a mismatched ETag, and succeeded
+with the matching ETag. Protected marker version histories matched exactly;
+there were no protected delete markers or remaining uploads owned by the run.
+
+The source SHA-256 was
+`eb46ed0a0bf0865ceab4176ac816970b7e1d43089821eeeef244b96570a3c4c6`.
+All 207 intent/receipt links were verified; the 416 JSON evidence files have a
+manifest digest of
+`f3a5d60fe8259ef327b786079b7130d45cf1c37ddfc2ccbb8e4e98eebbc314ef`.
+See the [sanitized complete case report](evidence/rhea-gen14-live-iam-acceptance-20261125.json).
+
+The buckets, versions and scoped credentials remain available for the next
+isolated rehearsal. The API result does not establish dirty-cache quarantine,
+continuous denial over time, custom Wasabi operation behavior, or a gen14
+compaction result.
+
 ## Purpose and scope
 
 Exercise the real writer and publisher access keys created by PR #15 against
 the two fixed disposable buckets. Passing this run establishes the tested API
 permissions and conditional-write behavior for these identities and this test
-scope. It does not authorize a Pebble writer open or establish a production
-migration result.
+scope. Pebble writer readiness still depends on lifecycle integration and crash
+qualification; this report is a disposable-bucket acceptance result.
 
 | Item | Fixed value |
 | --- | --- |
