@@ -37,11 +37,28 @@ BASE = b'wasabi extension public fixture\n'
 SECOND = b'wasabi extension second version\n'
 APPEND = b'append\n'
 MAX_BODY, MAX_XML, MAX_ROWS = 1024, 65536, 512
+ERROR_CODES = acceptance.S3_CODES | frozenset((
+    'BadDigest', 'BadRequest', 'IncompleteSignature', 'InvalidAction', 'InvalidDigest',
+    'InvalidObjectState', 'MissingContentLength', 'MissingSecurityHeader',
+    'AuthorizationQueryParametersError', 'SignatureDoesNotMatch', 'RequestTimeTooSkewed',
+    'XAmzContentSHA256Mismatch'))
+ORIGINAL_SNAPSHOT = '0043-admin-append-positive-before-snapshot.json'
+ORIGINAL_SNAPSHOT_SHA = '7630439dc515d0269a59959c2924f346c844fab70c88605e8db1e55eeee7ca2a'
+ORIGINAL_FAILURE_BODY_SHA = '3084292c927f88df1a55bd1a45bbb660e2e3e963ee080524f207f6a453ab9afa'
+CHECKSUM_DIAGNOSTIC = dict(
+    error_code='InvalidRequest', history_unchanged=True, http_status=400,
+    message='Missing required header for this request: X-Amz-Content-Sha256',
+    response_bytes=395,
+    response_sha256='0b78fc105ff3b581fb4a1ab83602f3d4945597bedbef69aecb299b6f5f249197')
 
 
 class Journal(p.Journal):
+    def __init__(self, *, checksum_corrected=False):
+        p.require(type(checksum_corrected) is bool, 'invalid extension journal selection')
+        self.path = STATE / 'checksum-corrected' if checksum_corrected else STATE
+
     def __enter__(self):
-        self.fd, self.lock = p.directory(STATE, create=True, private=True), None
+        self.fd, self.lock = p.directory(self.path, create=True, private=True), None
         try:
             try:
                 self.lock = os.open('lock', os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
@@ -108,8 +125,11 @@ def raw_request(client, spec):
     allowed = {p.S3_ENDPOINT + '/' + bucket + '/' + quote(key, safe='/') + suffix
                for bucket in BUCKETS for key in KEYS for suffix in ('', '?compose', '?append')}
     p.require(spec['url'] in allowed and spec['method'] in ('MOVE', 'PUT'), 'raw request outside fixed scope')
+    p.require(type(spec['body']) is bytes and len(spec['body']) <= MAX_BODY, 'invalid signed request payload')
+    headers = {key: value for key, value in spec['headers'].items() if key.lower() != 'x-amz-content-sha256'}
+    headers['X-Amz-Content-Sha256'] = p.sha(spec['body'])
     request = AWSRequest(method=spec['method'], url=spec['url'], data=spec['body'],
-                         headers=spec['headers'], stream_output=True)
+                         headers=headers, stream_output=True)
     raw._request_signer.sign('PutObject', request, region_name='ca-central-1', signing_name='s3')
     prepared = request.prepare()
     p.require(prepared.url == spec['url'] and prepared.method == spec['method'], 'signed request scope changed')
@@ -163,8 +183,17 @@ def xml_result(status, headers, body, operation, expected, source, destination=N
 def response_evidence(status, headers, body):
     """Retain diagnostics even for a rejected response, without its raw content."""
     request_id = next((v for k, v in headers.items() if k.lower() == 'x-amz-request-id'), None)
+    codes = []
+    if len(body) <= MAX_XML and b'<!DOCTYPE' not in body.upper() and b'<!ENTITY' not in body.upper():
+        try:
+            root = ET.fromstring(body)
+            codes = [element.text for element in root.iter() if element.tag.rsplit('}', 1)[-1] == 'Code']
+        except ET.ParseError:
+            pass
+    code = codes[0] if codes and len(set(codes)) == 1 and codes[0] in ERROR_CODES else None
     return dict(http_status=status if type(status) is int else None,
                 response_sha256=p.sha(body), response_bytes=len(body),
+                error_code=code,
                 request_id=request_id if type(request_id) is str
                 and re.fullmatch(r'[A-Za-z0-9_-]{1,128}', request_id) else None)
 
@@ -308,7 +337,7 @@ def moved_versions(before, after, bucket, source, destination):
               'MOVE did not move exactly the recorded versions')
 
 
-def run_checks(clients, account, journal, trace=None, transport=raw_request):
+def run_checks(clients, account, journal, trace=None, transport=raw_request, *, reconciled_snapshot=None):
     trace = trace or Trace()
     c = Checks(clients, account, journal, trace, transport)
     for role in ('writer', 'publisher'):
@@ -322,22 +351,27 @@ def run_checks(clients, account, journal, trace=None, transport=raw_request):
                       'extension signing identity differs')
             return None, dict(identity_verified=True)
         c.record('identify-' + role, role + '_sts', 'get_caller_identity', {}, identity)
-    before = c.snapshot('initial')
-    p.require(all(not row['key'].startswith(FIXTURE_PREFIX) and row['key'] != OUTSIDE
-                  for rows in before.values() for row in rows), 'extension fixtures already exist; no replay')
+    before = c.snapshot('initial', refresh=True)
+    if reconciled_snapshot is None:
+        p.require(all(not row['key'].startswith(FIXTURE_PREFIX) and row['key'] != OUTSIDE
+                      for rows in before.values() for row in rows), 'extension fixtures already exist; no replay')
+    else:
+        p.require(type(reconciled_snapshot) is dict and set(reconciled_snapshot) == set(BUCKETS)
+                  and before == reconciled_snapshot, 'checksum continuation history differs from original baseline')
     for bucket in BUCKETS:
         versioning = c.sdk('versioning-initial', 'admin', 'get_bucket_versioning', bucket=bucket)
         p.require(versioning.get('Status') == 'Enabled', 'versioning must remain enabled')
     p.require(PROTECTED <= {row['key'] for row in before[BUCKET] if not row['delete'] and row['latest']},
               'accepted marker fixtures missing')
-    for name in ('a', 'b', 'admin-append', 'writer-append', 'admin-move-source',
-                 'writer-move-source', 'denied-move-source'):
-        c.seed(name)
-    for name in ('admin-move-source', 'writer-move-source'):
-        c.seed(name, body=SECOND)
-    c.seed(OUTSIDE)
-    for name in ('a', 'b', 'denied-move-source'):
-        c.seed(name, bucket=BUCKETS[1])
+    if reconciled_snapshot is None:
+        for name in ('a', 'b', 'admin-append', 'writer-append', 'admin-move-source',
+                     'writer-move-source', 'denied-move-source'):
+            c.seed(name)
+        for name in ('admin-move-source', 'writer-move-source'):
+            c.seed(name, body=SECOND)
+        c.seed(OUTSIDE)
+        for name in ('a', 'b', 'denied-move-source'):
+            c.seed(name, bucket=BUCKETS[1])
 
     # Positive controls prove custom requests are syntactically valid under
     # admin and writer before a 403 can be counted as a policy denial.
@@ -410,6 +444,99 @@ def run_checks(clients, account, journal, trace=None, transport=raw_request):
                                      'production or full-clone resources'])
 
 
+def checksum_resume_evidence(original):
+    """Authorize only the reviewed, unchanged first-append checksum failure."""
+    raw_result = original.raw('result.json')
+    result = p.admin.iam.parse(raw_result)
+    response = result.get('extension_response', {})
+    p.require(result.get('result') == 'REFUSED' and result.get('stage') == 'admin-append-positive'
+              and result.get('checks') == 43 and result.get('explicit_denials') == 0
+              and type(response) is dict and response.get('http_status') == 400
+              and response.get('response_bytes') == 395
+              and response.get('response_sha256') == ORIGINAL_FAILURE_BODY_SHA,
+              'original failure is not the reviewed checksum failure')
+    raw_diagnostic = original.raw('diagnostic-result.json')
+    diagnostic = p.admin.iam.parse(raw_diagnostic)
+    p.require(diagnostic == CHECKSUM_DIAGNOSTIC and raw_diagnostic == p.canonical(CHECKSUM_DIAGNOSTIC),
+              'checksum diagnostic is missing, changed, or does not prove unchanged history')
+    raw_before = original.raw(ORIGINAL_SNAPSHOT)
+    p.require(p.sha(raw_before) == ORIGINAL_SNAPSHOT_SHA, 'original before-snapshot changed')
+    before = p.admin.iam.parse(raw_before)
+    p.require(set(before) == set(BUCKETS) and all(type(rows) is list for rows in before.values()),
+              'original before-snapshot scope differs')
+    source_run = original.read('run.intent.json')
+    p.require(source_run.get('schema') == 1 and source_run.get('domain') == 'rhea-wasabi-extensions-v1'
+              and source_run.get('endpoint') == p.S3_ENDPOINT and source_run.get('buckets') == list(BUCKETS)
+              and source_run.get('policy_sha256') == p.POLICY_SHAS,
+              'original extension run binding differs')
+    failed_intent = original.read('0043.intent.json')
+    p.require(failed_intent.get('sequence') == 43 and failed_intent.get('case') == 'admin-append-positive'
+              and failed_intent.get('role') == 'admin' and failed_intent.get('operation') == 'append'
+              and failed_intent.get('parameters') == dict(bucket=BUCKET, key=FIXTURES['admin-append'],
+                                                          expected='ok', data=p.sha(APPEND)),
+              'original failed request is not the reviewed append')
+    failed_receipt = original.read('0043.receipt.json')
+    p.require(failed_receipt.get('result') == 'FAIL'
+              and failed_receipt.get('intent_sha256') == p.admin.iam.digest(failed_intent)
+              and failed_receipt.get('evidence') == response, 'original failed request receipt differs')
+    provenance = dict(original_result_sha256=p.sha(raw_result),
+                      diagnostic_result_sha256=p.sha(raw_diagnostic),
+                      original_before_snapshot_sha256=p.sha(raw_before),
+                      original_run_sha256=p.admin.iam.digest(source_run),
+                      original_failed_intent_sha256=p.admin.iam.digest(failed_intent),
+                      original_failed_receipt_sha256=p.admin.iam.digest(failed_receipt))
+    return before, source_run, provenance
+
+
+def checksum_continuation(mode, trace):
+    """One explicitly selected continuation; never reset or rewrite the first run."""
+    corrected = STATE / 'checksum-corrected'
+    if mode == 'status-checksum':
+        if not corrected.exists():
+            return dict(result='NOT_STARTED', continuation='checksum-corrected', credentials='NOT_ACCESSED')
+        with Journal(checksum_corrected=True) as journal:
+            if journal.exists('result.json'):
+                return journal.read('result.json')
+            return dict(result='PENDING' if journal.exists('run.intent.json') else 'NOT_STARTED',
+                        continuation='checksum-corrected', credentials='NOT_ACCESSED')
+    p.require(mode == 'resume-checksum' and STATE.is_dir(), 'original extension journal is missing')
+    with Journal() as original:
+        trace.stage = 'validate_checksum_resume_evidence'
+        before, source_run, provenance = checksum_resume_evidence(original)
+        with Journal(checksum_corrected=True) as journal:
+            if journal.exists('result.json'):
+                return journal.read('result.json')
+            p.require(not journal.exists('run.intent.json'), 'checksum continuation already started; no retries')
+            clients, account = acceptance.load_clients(trace)
+            try:
+                p.require(source_run.get('account') == account
+                          and source_run.get('credential_plan_sha256') == clients['credential_plan_sha256'],
+                          'checksum continuation credential binding differs')
+                journal.write('run.intent.json', dict(
+                    schema=1, domain='rhea-wasabi-extensions-checksum-corrected-v1',
+                    account=account, endpoint=p.S3_ENDPOINT, buckets=list(BUCKETS),
+                    credential_plan_sha256=clients['credential_plan_sha256'], policy_sha256=p.POLICY_SHAS,
+                    corrected_header='X-Amz-Content-Sha256', source_evidence=provenance))
+                try:
+                    result = run_checks(clients, account, journal, trace, reconciled_snapshot=before)
+                except Exception as exc:
+                    result = dict(result='REFUSED', stage=trace.stage, checks=trace.checks,
+                                  explicit_denials=trace.denials, **acceptance.error_details(exc))
+                    if getattr(exc, 'extension_response', None) is not None:
+                        result['extension_response'] = exc.extension_response
+                    if type(exc) is p.Refusal:
+                        result['reason'] = str(exc)
+                result.update(continuation='checksum-corrected', source_evidence=provenance)
+                journal.write('result.json', result)
+                return result
+            finally:
+                for client in clients.get('closers', []):
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+
+
 def run(mode, trace=None):
     trace = trace or Trace()
     p.require(os.getuid() == 0 and os.geteuid() == 0, 'root execution required')
@@ -417,6 +544,8 @@ def run(mode, trace=None):
     logging.disable(logging.CRITICAL)
     os.environ.clear()
     os.environ.update(PATH='/usr/bin:/bin', LC_ALL='C', HOME='/nonexistent', AWS_EC2_METADATA_DISABLED='true')
+    if mode in ('resume-checksum', 'status-checksum'):
+        return checksum_continuation(mode, trace)
     if mode == 'status' and not STATE.exists():
         return dict(result='NOT_STARTED', credentials='NOT_ACCESSED')
     with Journal() as journal:
@@ -451,7 +580,7 @@ def run(mode, trace=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('status', 'run'))
+    parser.add_argument('mode', choices=('status', 'run', 'resume-checksum', 'status-checksum'))
     args, trace = parser.parse_args(argv), Trace()
     try:
         result = run(args.mode, trace)

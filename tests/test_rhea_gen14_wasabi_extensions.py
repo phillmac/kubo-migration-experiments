@@ -133,6 +133,7 @@ class ExtensionsTests(unittest.TestCase):
         failed = [value for name, value in self.journal.entries.items()
                   if name.endswith('.receipt.json') and value.get('result') == 'FAIL']
         self.assertEqual(failed[-1]['evidence']['http_status'], 404)
+        self.assertEqual(failed[-1]['evidence']['error_code'], 'NoSuchKey')
         self.assertEqual(failed[-1]['evidence']['request_id'], 'OFFLINE-REQUEST-123')
         self.assertNotIn(f.SECRET, repr(failed))
 
@@ -150,6 +151,17 @@ class ExtensionsTests(unittest.TestCase):
         self.transport.deny_code = 'SignatureDoesNotMatch'
         with self.assertRaisesRegex(e.p.Refusal, 'not explicitly denied'):
             self.exercise()
+
+    def test_failure_evidence_keeps_only_allowlisted_error_code(self):
+        for code, expected in (('MissingSecurityHeader', 'MissingSecurityHeader'),
+                               ('XAmzContentSHA256Mismatch', 'XAmzContentSHA256Mismatch'),
+                               (f.SECRET, None)):
+            with self.subTest(code=expected):
+                body = ('<Error xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+                        '<Code>' + code + '</Code><Message>' + f.SECRET + '</Message></Error>').encode()
+                evidence = e.response_evidence(400, {}, body)
+                self.assertEqual(evidence['error_code'], expected)
+                self.assertNotIn(f.SECRET, repr(evidence))
 
     def test_denied_request_with_hidden_write_fails_history_check(self):
         def corrupt(role, op, bucket, key, allowed):
@@ -253,6 +265,7 @@ class RawTransportTests(unittest.TestCase):
                 return self
         stream = io.BytesIO(body)
         def sign(operation, request, **kw):
+            assert request.headers['X-Amz-Content-Sha256'] == e.p.sha(request.body), 'payload hash absent before signing'
             self.signed.append((operation, request, kw))
             request.headers['Authorization'] = f.SECRET
         def send(request):
@@ -275,9 +288,26 @@ class RawTransportTests(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertTrue(self.sent[0].stream_output)
         self.assertTrue(self.sent[0].url.endswith('?append'))
+        self.assertEqual(self.sent[0].headers['X-Amz-Content-Sha256'], e.p.sha(e.APPEND))
         self.assertEqual(self.signed[0][2], dict(region_name='ca-central-1', signing_name='s3'))
         self.assertTrue(stream.closed)
         self.assertNotIn(f.SECRET, repr((status, headers, body)))
+
+    def test_payload_hash_covers_compose_bytes_and_empty_move_body_before_signing(self):
+        for operation, options in (('compose', dict(components=(e.FIXTURES['a'],))),
+                                    ('move', dict(destination=e.FIXTURES['b']))):
+            with self.subTest(operation=operation):
+                client, stream, fake = self.make()
+                spec = e.request_spec(operation, e.BUCKET, e.FIXTURES['a'], f.ACCOUNT, **options)
+                spec['headers']['x-amz-content-sha256'] = 'UNSIGNED-PAYLOAD'
+                original = copy.deepcopy(spec)
+                with patch.dict(sys.modules, {'botocore.awsrequest': fake}):
+                    e.raw_request(client, spec)
+                matching = [value for key, value in self.sent[0].headers.items()
+                            if key.lower() == 'x-amz-content-sha256']
+                self.assertEqual(matching, [e.p.sha(spec['body'])])
+                self.assertEqual(spec, original, 'signing changed the journalable request specification')
+                self.assertTrue(stream.closed)
 
     def test_transport_never_follows_redirect_or_repeats(self):
         client, stream, fake = self.make(status=307)
@@ -302,6 +332,155 @@ class RawTransportTests(unittest.TestCase):
         with patch.dict(sys.modules, {'botocore.awsrequest': fake}), self.assertRaises(e.p.Refusal):
             e.raw_request(client, spec)
         self.assertFalse(self.signed)
+
+
+class ResumeJournal(f.Journal):
+    def raw(self, name):
+        return e.p.canonical(self.read(name))
+
+
+class ChecksumContinuationTests(unittest.TestCase):
+    def setUp(self):
+        ExtensionsTests.setUp(self)
+        self.original = ResumeJournal()
+        self.store.before_call = self.original.before_call
+        # Match the real first-attempt sequence number without real provider data.
+        for _ in range(3):
+            self.store.client('admin').put(e.BUCKET, e.APPROVED, f.a.PAYLOAD)
+        self.original.write('run.intent.json', dict(
+            schema=1, domain='rhea-wasabi-extensions-v1', account=f.ACCOUNT,
+            endpoint=e.p.S3_ENDPOINT, buckets=list(e.BUCKETS), policy_sha256=e.p.POLICY_SHAS,
+            credential_plan_sha256=self.clients['credential_plan_sha256']))
+        response = (b'<Error><Code>InvalidRequest</Code><Message>Missing required header for this request: '
+                    b'X-Amz-Content-Sha256</Message></Error>')
+        response = response.ljust(395, b' ')
+        def missing_header(client, spec):
+            self.original.before_call(client.role, 'raw', {})
+            return 400, {'x-amz-request-id': 'OFFLINE-ORIGINAL-REQUEST'}, response
+        trace = e.Trace()
+        try:
+            e.run_checks(self.clients, f.ACCOUNT, self.original, trace, transport=missing_header)
+        except e.p.Refusal as exc:
+            self.original.write('result.json', dict(
+                result='REFUSED', stage=trace.stage, checks=trace.checks, explicit_denials=trace.denials,
+                extension_response=exc.extension_response, reason=str(exc), **e.acceptance.error_details(exc)))
+        else:
+            raise AssertionError('missing-header control did not fail')
+        self.assertEqual(trace.checks, 43)
+        self.assertEqual(trace.stage, 'admin-append-positive')
+        self.original.write('diagnostic-result.json', copy.deepcopy(e.CHECKSUM_DIAGNOSTIC))
+        self.enterContext(patch.object(e, 'ORIGINAL_FAILURE_BODY_SHA', e.p.sha(response)))
+        self.enterContext(patch.object(e, 'ORIGINAL_SNAPSHOT_SHA', e.p.sha(self.original.raw(e.ORIGINAL_SNAPSHOT))))
+        self.corrected = ResumeJournal()
+        self.store.before_call = self.corrected.before_call
+        self.transport = Transport(self.store, self.corrected)
+        directory = self.enterContext(tempfile.TemporaryDirectory(prefix='extension-FAKE-resume-'))
+        self.state = Path(directory)
+        self.enterContext(patch.object(e, 'STATE', self.state))
+        def journals(*, checksum_corrected=False):
+            if checksum_corrected:
+                (self.state / 'checksum-corrected').mkdir(exist_ok=True)
+            return self.corrected if checksum_corrected else self.original
+        self.enterContext(patch.object(e, 'Journal', side_effect=journals))
+        self.clients_load = self.enterContext(patch.object(e.acceptance, 'load_clients', return_value=(self.clients, f.ACCOUNT)))
+        checks = e.run_checks
+        self.enterContext(patch.object(e, 'run_checks', side_effect=lambda *args, **kwargs:
+                                     checks(*args, transport=self.transport, **kwargs)))
+        self.enterContext(patch.object(e.os, 'getuid', return_value=0))
+        self.enterContext(patch.object(e.os, 'geteuid', return_value=0))
+        self.enterContext(patch.dict(os.environ))
+        old_mask = os.umask(0o077)
+        self.addCleanup(os.umask, old_mask)
+
+    def invoke(self, mode='resume-checksum'):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = e.main([mode])
+        self.assertNotIn(f.SECRET, output.getvalue())
+        return code, json.loads(output.getvalue())
+
+    def test_corrected_matrix_uses_existing_seeds_and_keeps_original_evidence(self):
+        old = copy.deepcopy(self.original.entries)
+        seeds = [row for row in self.store.calls if row[1] == 'put_object']
+        code, value = self.invoke()
+        self.assertEqual(code, 0, value)
+        self.assertEqual(value['result'], 'PASS')
+        self.assertEqual(value['continuation'], 'checksum-corrected')
+        self.assertEqual(value['explicit_denials'], 49)
+        self.assertEqual(len(self.transport.calls), 57)
+        self.assertEqual(seeds, [row for row in self.store.calls if row[1] == 'put_object'])
+        self.assertEqual(self.original.entries, old)
+        self.assertEqual(value['source_evidence']['original_before_snapshot_sha256'], e.ORIGINAL_SNAPSHOT_SHA)
+        self.assertEqual(value['source_evidence']['diagnostic_result_sha256'],
+                         e.p.sha(self.original.raw('diagnostic-result.json')))
+        self.assertEqual(self.invoke()[1], value)
+        self.assertEqual(self.invoke('status-checksum')[1], value)
+        self.assertEqual(self.invoke('run')[1], old['result.json'])
+        self.assertEqual(len(self.transport.calls), 57)
+        self.assertEqual(self.clients_load.call_count, 1)
+
+    def test_history_change_prevents_every_custom_operation_and_reseed(self):
+        self.store.client('admin').put(e.BUCKET, e.FIXTURES['admin-append'], b'unexpected version')
+        old = copy.deepcopy(self.original.entries)
+        seeds = [row for row in self.store.calls if row[1] == 'put_object']
+        code, value = self.invoke()
+        self.assertEqual(code, 2)
+        self.assertIn('history differs', value['reason'])
+        self.assertFalse(self.transport.calls)
+        self.assertEqual(seeds, [row for row in self.store.calls if row[1] == 'put_object'])
+        self.assertEqual(old, self.original.entries)
+        self.assertEqual(self.invoke()[1], value)
+        self.assertEqual(self.clients_load.call_count, 1)
+
+    def test_different_original_failure_stage_is_rejected_before_credentials(self):
+        self.original.entries['result.json']['stage'] = 'writer-append-positive'
+        self.assertEqual(self.invoke()[0], 2)
+        self.clients_load.assert_not_called()
+        self.assertFalse(self.corrected.entries)
+
+    def test_missing_diagnostic_is_rejected_before_credentials(self):
+        self.original.entries.pop('diagnostic-result.json')
+        self.assertEqual(self.invoke()[0], 2)
+        self.clients_load.assert_not_called()
+        self.assertFalse(self.corrected.entries)
+
+    def test_wrong_error_or_unproved_history_is_rejected_before_credentials(self):
+        for name, value in (('error_code', 'AccessDenied'), ('http_status', 403),
+                             ('history_unchanged', False), ('history_unchanged', 1),
+                             ('message', 'another failure')):
+            with self.subTest(name=name, value=value):
+                self.original.entries['diagnostic-result.json'] = dict(e.CHECKSUM_DIAGNOSTIC, **{name: value})
+                self.assertEqual(self.invoke()[0], 2)
+                self.clients_load.assert_not_called()
+                self.assertFalse(self.corrected.entries)
+
+    def test_original_snapshot_edit_is_rejected_before_credentials(self):
+        self.original.entries[e.ORIGINAL_SNAPSHOT][e.BUCKET][0]['latest'] = False
+        self.assertEqual(self.invoke()[0], 2)
+        self.clients_load.assert_not_called()
+        self.assertFalse(self.corrected.entries)
+
+    def test_changed_credential_account_refuses_before_continuation_intent(self):
+        self.original.entries['run.intent.json']['account'] = '999999999999'
+        self.assertEqual(self.invoke()[0], 2)
+        self.assertFalse(self.corrected.entries)
+        self.assertFalse(self.transport.calls)
+
+    def test_corrected_failure_is_saved_and_never_replayed(self):
+        self.transport.fail_once = True
+        code, value = self.invoke()
+        self.assertEqual(code, 2)
+        self.assertEqual(value['result'], 'REFUSED')
+        self.assertEqual(len(self.transport.calls), 1)
+        self.assertEqual(self.invoke()[1], value)
+        self.assertEqual(len(self.transport.calls), 1)
+        self.assertEqual(self.original.read('result.json')['result'], 'REFUSED')
+
+    def test_pending_continuation_does_not_retry_or_load_credentials(self):
+        self.corrected.write('run.intent.json', {'result': 'interrupted'})
+        self.assertEqual(self.invoke()[0], 2)
+        self.clients_load.assert_not_called()
+        self.assertFalse(self.transport.calls)
 
 
 if __name__ == '__main__':

@@ -4,8 +4,8 @@ set -euo pipefail
 umask 077
 
 fail() { printf 'rhea-gen14-wasabi-extensions: REFUSED: %s\n' "$1" >&2; exit 2; }
-[[ "$#" == 1 ]] || fail 'usage: bash run_rhea_gen14_wasabi_extensions.sh {status|run}'
-case "$1" in status|run) readonly MODE="$1" ;; *) fail 'unsupported mode' ;; esac
+[[ "$#" == 1 ]] || fail 'usage: bash run_rhea_gen14_wasabi_extensions.sh {status|run|resume-checksum|status-checksum}'
+case "$1" in status|run|resume-checksum|status-checksum) readonly MODE="$1" ;; *) fail 'unsupported mode' ;; esac
 [[ "$(/usr/bin/id -u)" == 0 ]] || fail 'root required'
 [[ ! -L "${BASH_SOURCE[0]}" ]] || fail 'linked launcher'
 readonly BASE="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -37,7 +37,7 @@ check 'rhea_multi_sst_marker_iam.py' '6e0b941185ac49de1f60a36f98ca5ed3122720c9c5
 check 'rhea_multi_sst_signed_admission.py' '604970652d468d65008dc0b0b10367f6e8007de2f3fc2807b9b47f3e82e23574'
 check 'rhea_gen14_recover_iam_policy.py' 'f96d544da2bc6a2de280c5685043be1d910e2d753b5e46a10fef59e5bce68f5d'
 check 'rhea_gen14_live_iam_acceptance.py' 'eb46ed0a0bf0865ceab4176ac816970b7e1d43089821eeeef244b96570a3c4c6'
-check 'rhea_gen14_wasabi_extensions.py' '1cc55a78c8b5eb2fd0a352d0bc11282806394c7d8887ded05d324e8de17b68be'
+check 'rhea_gen14_wasabi_extensions.py' '182c848f1b20395111b2934d2c995595f1cb685ff006168e9f6506f3389d9365'
 exec /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C HOME=/nonexistent \
     PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -E -s -B \
     "$BASE/rhea_gen14_wasabi_extensions.py" "$MODE"
