@@ -1,0 +1,30 @@
+{
+  "recorded_at_utc": "2026-11-24T21:48:36Z",
+  "source": "authenticated Wasabi GetAccountSummary through fixed Rhea source, after STS identity and original user receipt checks",
+  "operation": "GetAccountSummary",
+  "result": "READ_ONLY_QUOTAS",
+  "quotas": {
+    "AttachedPoliciesPerUserQuota": 10,
+    "GroupPolicySizeQuota": 5120,
+    "PolicySizeQuota": 5120,
+    "RolePolicySizeQuota": 10240,
+    "UserPolicySizeQuota": 2048
+  },
+  "policy_characters_excluding_whitespace": {
+    "writer": 2308,
+    "publisher": 2998
+  },
+  "policy_sha256": {
+    "writer": "b828fad32852d15e813a1f6b300093924e4c743f7e9b111c0dc938d0c7d24d23",
+    "publisher": "4cdfa9fe6077be6ec3d37fc82e0c0b3bdd104c2ed5ef24cc6a66bede4ceb8415"
+  },
+  "user_reported_policy_read": {
+    "stage": "read_writer_policy",
+    "exception": "NoSuchEntityException",
+    "provider_error_code": "NoSuchEntity",
+    "http_status": 404
+  },
+  "original_put_error_preserved": false,
+  "iam_mutations_performed_by_quota_check": 0,
+  "credentials_included": false
+}
