@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import socket
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import patch
@@ -329,6 +330,11 @@ class STS:
 
 class LiveAcceptanceTests(unittest.TestCase):
     def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='live-iam-FAKE-only-')
+        self.addCleanup(self.temp.cleanup)
+        # Mocked uid 0 does not grant CI access to the real /root tree. Keep
+        # the wrapper's initial exists() check inside this isolated fixture too.
+        self.enterContext(patch.object(a, 'STATE', Path(self.temp.name) / 'acceptance'))
         self.enterContext(patch.object(socket, 'socket', side_effect=AssertionError('NETWORK FORBIDDEN')))
         self.enterContext(patch.object(socket, 'create_connection', side_effect=AssertionError('NETWORK FORBIDDEN')))
         self.reset_fixture()
