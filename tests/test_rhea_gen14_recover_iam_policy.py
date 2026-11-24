@@ -36,6 +36,7 @@ class ManagedIAM(FakeIAM):
         self.fail_after = None
         self.failure = SDKError
         self.policy_version_override = None
+        self.collapse_singletons = False
         self.attachment_readback_empty = False
         self.list_truncated = None
         self.quotas = dict(UserPolicySizeQuota=2048, PolicySizeQuota=5120,
@@ -97,9 +98,27 @@ class ManagedIAM(FakeIAM):
         row = self.managed[PolicyArn]
         document = (row['document'] if self.policy_version_override is None
                     else self.policy_version_override)
+        if self.collapse_singletons:
+            document = self.provider_scalar_form(document)
         return dict(ResponseMetadata=META, PolicyVersion=dict(
             VersionId=VersionId, IsDefaultVersion=True,
             Document=quote(json.dumps(document))))
+
+    @staticmethod
+    def provider_scalar_form(document):
+        """Represent the concrete singleton collapsing observed from Wasabi."""
+        result = copy.deepcopy(document)
+        for statement in result.get('Statement', []):
+            for field in ('Action', 'NotAction', 'Resource', 'NotResource'):
+                values = statement.get(field)
+                if isinstance(values, list) and len(values) == 1:
+                    statement[field] = values[0]
+            for operator in ('StringLike', 'StringNotLike'):
+                condition = statement.get('Condition', {}).get(operator, {})
+                values = condition.get('s3:prefix')
+                if isinstance(values, list) and len(values) == 1:
+                    condition['s3:prefix'] = values[0]
+        return result
 
     def attach_user_policy(self, UserName, PolicyArn):
         self.mutate('AttachUserPolicy', UserName)
@@ -207,6 +226,65 @@ class ManagedRecoveryTests(unittest.TestCase):
             if artifact.name not in ('writer.json', 'publisher.json'):
                 self.assertNotIn(SECRET, artifact.read_text())
                 self.assertNotIn(KEY, artifact.read_text())
+
+    def test_provider_scalar_forms_for_both_roles_match_original_documents(self):
+        self.iam.collapse_singletons = True
+        code, result = self.run_main()
+        self.assertEqual(code, 0, result)
+        self.assertEqual(len(self.iam.mutations), 6)
+        self.assertEqual(self.run_main('verify')[0], 0)
+        for role in ('writer', 'publisher'):
+            expected = p.reviewed_plan()['policies'][role]['document']
+            wire = self.iam.provider_scalar_form(expected)
+            before = copy.deepcopy(wire)
+            restored = r.normalize_policy(wire)
+            self.assertEqual(restored, expected)
+            self.assertEqual(p.sha(p.canonical(restored)), p.POLICY_SHAS[role])
+            self.assertEqual(wire, before, 'normalizer mutated provider input')
+
+    def test_interrupted_writer_creation_resumes_with_provider_scalar_readback(self):
+        self.iam.collapse_singletons = True
+        self.iam.fail_after = 0
+        self.iam.failure = TimeoutError
+        self.assertEqual(self.run_main()[0], 2)
+        self.assertEqual(len(self.iam.managed), 1)
+        self.assertFalse((self.recovery / '00.receipt.json').exists())
+        code, result = self.run_main()
+        self.assertEqual(code, 0, result)
+        self.assertEqual(len(self.iam.mutations), 6)
+        self.assertEqual(sum(action == 'CreatePolicy' for action, _ in self.iam.mutations), 2)
+        self.assertEqual(self.snapshot(self.state), self.legacy_before)
+
+    def test_scalar_normalization_rejects_permission_or_other_document_changes(self):
+        for change in ('scalar_action', 'extra_action', 'extra_resource', 'prefix',
+                       'null_condition', 'unknown_field', 'reordered_statements'):
+            with self.subTest(change=change):
+                document = self.iam.provider_scalar_form(
+                    p.reviewed_plan()['policies']['writer']['document'])
+                if change == 'scalar_action':
+                    document['Statement'][0]['Action'] = 's3:PutObject'
+                elif change == 'extra_action':
+                    document['Statement'][0]['Action'] = ['s3:*', 'iam:*']
+                elif change == 'extra_resource':
+                    row = next(row for row in document['Statement'] if 'Resource' in row)
+                    value = row['Resource']
+                    row['Resource'] = (value if isinstance(value, list) else [value]) + ['arn:aws:s3:::other/*']
+                elif change == 'prefix':
+                    row = next(row for row in document['Statement'] if 'StringLike' in row.get('Condition', {}))
+                    row['Condition']['StringLike']['s3:prefix'] = 'outside/*'
+                elif change == 'null_condition':
+                    row = next(row for row in document['Statement'] if 'Null' in row.get('Condition', {}))
+                    row['Condition']['Null']['s3:prefix'] = 'false'
+                elif change == 'unknown_field':
+                    document['Statement'][0]['Unexpected'] = 'ignored-by-bad-normalizers'
+                else:
+                    document['Statement'].reverse()
+                self.iam.policy_version_override = document
+                code, result = self.run_main()
+                self.assertEqual(code, 2, result)
+                self.assertFalse(self.iam.keys)
+                self.assertFalse(any(self.iam.attached.values()))
+                self.reset_managed()
 
     def test_completed_rerun_and_inspect_do_not_issue_new_keys(self):
         self.assertEqual(self.run_main()[0], 0)

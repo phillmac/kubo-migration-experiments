@@ -1,0 +1,24 @@
+{
+  "source": "authenticated read-only GetPolicy and GetPolicyVersion for the fixed writer managed policy",
+  "result": "READ_ONLY_POLICY_DIFF",
+  "role": "writer",
+  "version": "v1",
+  "wire_type": "dict",
+  "submitted_policy_sha256": "b828fad32852d15e813a1f6b300093924e4c743f7e9b111c0dc938d0c7d24d23",
+  "returned_policy_sha256": "3a6572d04ce2b5ccf381fe9902290b1b57864a67ea9309e47cccbc79102039a7",
+  "difference_kind": "singleton array replaced by its identical scalar string value",
+  "differing_paths": [
+    "$.Statement[0].Action",
+    "$.Statement[1].Resource",
+    "$.Statement[2].Condition.StringNotLike.s3:prefix",
+    "$.Statement[2].Resource",
+    "$.Statement[3].Resource",
+    "$.Statement[4].Resource",
+    "$.Statement[5].Condition.StringLike.s3:prefix",
+    "$.Statement[5].Resource",
+    "$.Statement[6].Resource"
+  ],
+  "other_differences": [],
+  "attachments_or_keys_created_before_inspection": false,
+  "credentials_included": false
+}

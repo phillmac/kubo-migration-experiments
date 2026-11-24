@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import ExitStack
+import copy
 import fcntl
 import json
 import logging
@@ -166,6 +167,30 @@ def listing(iam, method, field, user):
     return value[field]
 
 
+def normalize_policy(document):
+    """Restore only the singleton arrays Wasabi flattens in IAM read-back.
+
+    The pinned document uses lists for these IAM fields. This restores that
+    representation without changing any value, field, statement or list order.
+    Null conditions and every unlisted condition key/operator remain untouched.
+    """
+    restored = copy.deepcopy(document)
+    if type(restored) is dict and type(restored.get('Statement')) is list:
+        for statement in restored['Statement']:
+            if type(statement) is not dict:
+                continue
+            for name in ('Action', 'NotAction', 'Resource', 'NotResource'):
+                if type(statement.get(name)) is str:
+                    statement[name] = [statement[name]]
+            conditions = statement.get('Condition', {})
+            if type(conditions) is dict:
+                for operator in ('StringLike', 'StringNotLike'):
+                    condition = conditions.get(operator, {})
+                    if type(condition) is dict and type(condition.get('s3:prefix')) is str:
+                        condition['s3:prefix'] = [condition['s3:prefix']]
+    return restored
+
+
 def policy(iam, step):
     try:
         value = iam.get_policy(PolicyArn=step['policy_arn'])
@@ -189,7 +214,8 @@ def policy(iam, step):
     document = row_version.get('Document')
     if type(document) is str:
         document = json.loads(unquote(document))
-    p.require(p.sha(p.canonical(document)) == step['policy_sha256'], 'managed policy document differs')
+    p.require(p.sha(p.canonical(normalize_policy(document))) == step['policy_sha256'],
+              'managed policy document differs')
     return dict(policy_id_sha256=p.sha(row['PolicyId'].encode()), version_id=version,
                 policy_sha256=step['policy_sha256'])
 

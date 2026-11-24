@@ -50,6 +50,27 @@ The six new ordered mutations are `CreatePolicy` for writer and publisher,
 and publisher. Both exact policy documents and attachment inventories must
 be verified before keys can be created.
 
+### Wasabi read-back representation
+
+The first managed-policy request succeeded, but Wasabi returned singleton
+arrays as scalar strings, for example `"Action": ["s3:*"]` became
+`"Action": "s3:*"`. A read-only structural comparison found nine such
+representation differences and no changed permission values in the writer
+policy. The initial strict JSON hash check stopped before any attachment or
+key creation.
+
+IAM's grammar permits both representations. Read-back verification now
+normalizes only `Action`, `NotAction`, `Resource`, `NotResource`, and
+`s3:prefix` under `StringLike`/`StringNotLike` from a string to a one-item
+array. The resulting canonical hash must still equal the original reviewed
+policy SHA. It does not normalize `Effect`, `Sid`, `Null`, other conditions,
+unknown fields, multiple values, or statement order. The submitted documents
+remain unchanged. This allows the pending writer policy to be verified
+without issuing another `CreatePolicy` request.
+
+The observation is recorded in
+`docs/evidence/rhea-gen14-iam-policy-normalization-20261125.json`.
+
 ## Durable records and credentials
 
 The original state is preserved at:
@@ -132,3 +153,5 @@ acceptance and migration operations.
 - [AWS IAM quotas](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_iam-quotas.html)
   explains inline versus managed policy size limits. Use the observed Wasabi
   values above rather than assuming AWS's managed-policy quota applies.
+- [IAM policy grammar](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_grammar.html)
+  documents that array brackets are optional for single values.

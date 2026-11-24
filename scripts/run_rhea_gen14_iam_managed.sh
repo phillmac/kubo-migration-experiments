@@ -35,7 +35,7 @@ check 'rhea_gen14_create_iam_credentials.py' 'adeec619b4747d6e21fbe245a16fe55eba
 check 'rhea_gen14_iam_admin_acceptance.py' 'ae7299650e6d350112379440a882b15f31748a9402a8192f4e29baa74400a20b'
 check 'rhea_multi_sst_marker_iam.py' '6e0b941185ac49de1f60a36f98ca5ed3122720c9c59fc39320a86e750bf44c0a'
 check 'rhea_multi_sst_signed_admission.py' '604970652d468d65008dc0b0b10367f6e8007de2f3fc2807b9b47f3e82e23574'
-check 'rhea_gen14_recover_iam_policy.py' 'd3060848c0af10a931fbd3521458547e5c93d96cee0c4fd731300ae0232d0002'
+check 'rhea_gen14_recover_iam_policy.py' 'f96d544da2bc6a2de280c5685043be1d910e2d753b5e46a10fef59e5bce68f5d'
 exec /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C HOME=/nonexistent \
     PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -E -s -B \
     "$BASE/rhea_gen14_recover_iam_policy.py" "$MODE"
