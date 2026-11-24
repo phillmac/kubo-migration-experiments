@@ -1,0 +1,2742 @@
+{
+  "schema": 1,
+  "recorded_for": "rhea-gen14-disposable-iam-acceptance",
+  "source_commit": "dc7b0a56bcd3515ddd13f36b9ce31711b4c7a693",
+  "source_path": "scripts/rhea_gen14_live_iam_acceptance.py",
+  "runtime": {
+    "host": "rhea",
+    "boto3": "1.34.46",
+    "botocore": "1.34.46",
+    "s3_endpoint": "https://s3.ca-central-1.wasabisys.com",
+    "region": "ca-central-1"
+  },
+  "case_counts": [
+    {
+      "count": 2,
+      "expected": "absent",
+      "role": "admin"
+    },
+    {
+      "count": 32,
+      "expected": "ok",
+      "role": "admin"
+    },
+    {
+      "count": 1,
+      "expected": "bulk_deny",
+      "role": "publisher"
+    },
+    {
+      "count": 63,
+      "expected": "deny",
+      "role": "publisher"
+    },
+    {
+      "count": 20,
+      "expected": "ok",
+      "role": "publisher"
+    },
+    {
+      "count": 2,
+      "expected": "precondition",
+      "role": "publisher"
+    },
+    {
+      "count": 1,
+      "expected": "ok",
+      "role": "publisher_sts"
+    },
+    {
+      "count": 1,
+      "expected": "bulk_deny",
+      "role": "writer"
+    },
+    {
+      "count": 58,
+      "expected": "deny",
+      "role": "writer"
+    },
+    {
+      "count": 26,
+      "expected": "ok",
+      "role": "writer"
+    },
+    {
+      "count": 1,
+      "expected": "ok",
+      "role": "writer_sts"
+    }
+  ],
+  "cases": [
+    {
+      "case": "identity-writer",
+      "evidence": {
+        "request_id": "af410ca4-6ac6-de01-1b3c-5ecf30006079"
+      },
+      "expected": "ok",
+      "method": "get_caller_identity",
+      "result": "PASS",
+      "role": "writer_sts",
+      "sequence": 0
+    },
+    {
+      "case": "identity-publisher",
+      "evidence": {
+        "request_id": "61ed6990-2d6b-9ec6-4f56-47c584dafb2b"
+      },
+      "expected": "ok",
+      "method": "get_caller_identity",
+      "result": "PASS",
+      "role": "publisher_sts",
+      "sequence": 1
+    },
+    {
+      "case": "fresh-bucket-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "404",
+        "http_status": 404
+      },
+      "expected": "absent",
+      "method": "head_bucket",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 2
+    },
+    {
+      "case": "fresh-bucket-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "404",
+        "http_status": 404
+      },
+      "expected": "absent",
+      "method": "head_bucket",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 3
+    },
+    {
+      "case": "create-bucket-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb",
+      "evidence": {},
+      "expected": "ok",
+      "method": "create_bucket",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 4
+    },
+    {
+      "case": "enable-versioning-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb",
+      "evidence": {
+        "request_id": "6D177BD1D7412483:B"
+      },
+      "expected": "ok",
+      "method": "put_bucket_versioning",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 5
+    },
+    {
+      "case": "confirm-versioning-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb",
+      "evidence": {
+        "request_id": "CE8263DC8823458A:B"
+      },
+      "expected": "ok",
+      "method": "get_bucket_versioning",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 6
+    },
+    {
+      "case": "create-bucket-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb",
+      "evidence": {},
+      "expected": "ok",
+      "method": "create_bucket",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 7
+    },
+    {
+      "case": "enable-versioning-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb",
+      "evidence": {
+        "request_id": "E5A7B27687BAB20C:B"
+      },
+      "expected": "ok",
+      "method": "put_bucket_versioning",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 8
+    },
+    {
+      "case": "confirm-versioning-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb",
+      "evidence": {
+        "request_id": "1C70EA9C8000F9F2:B"
+      },
+      "expected": "ok",
+      "method": "get_bucket_versioning",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 9
+    },
+    {
+      "case": "put-admin-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds/marker.manifest",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185494414156-BXYvTzvDSC",
+        "request_id": "AED2FA11D44EC134:B"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 10
+    },
+    {
+      "case": "get-admin-rhea/pebbleds/marker.manifest-001795559185494414156-BXYvTzvDSC",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185494414156-BXYvTzvDSC",
+        "request_id": "454A29539834312A:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 11
+    },
+    {
+      "case": "put-admin-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds/marker.manifest.000018.MANIFEST-000124",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185618515435-FBEWeEB02f",
+        "request_id": "E67030CBDC07DBE2:B"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 12
+    },
+    {
+      "case": "get-admin-rhea/pebbleds/marker.manifest.000018.MANIFEST-000124-001795559185618515435-FBEWeEB02f",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185618515435-FBEWeEB02f",
+        "request_id": "6316AA6214DBF826:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 13
+    },
+    {
+      "case": "put-admin-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds/marker.format-version",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185739327393-HZBIUbL4Qc",
+        "request_id": "DD0AD31D31D29438:B"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 14
+    },
+    {
+      "case": "get-admin-rhea/pebbleds/marker.format-version-001795559185739327393-HZBIUbL4Qc",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185739327393-HZBIUbL4Qc",
+        "request_id": "E50967C82668FE80:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 15
+    },
+    {
+      "case": "put-admin-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds/marker.format-version.000012.013",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185869704709-uK6-z2Ewfa",
+        "request_id": "A62913DC556FC00A:B"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 16
+    },
+    {
+      "case": "get-admin-rhea/pebbleds/marker.format-version.000012.013-001795559185869704709-uK6-z2Ewfa",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185869704709-uK6-z2Ewfa",
+        "request_id": "CAA53439AE1CD787:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 17
+    },
+    {
+      "case": "put-admin-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds/CURRENT",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185987260158-3CileDj8zK",
+        "request_id": "02851CA23E20C943:B"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 18
+    },
+    {
+      "case": "get-admin-rhea/pebbleds/CURRENT-001795559185987260158-3CileDj8zK",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185987260158-3CileDj8zK",
+        "request_id": "83FD441D24F2FB35:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 19
+    },
+    {
+      "case": "put-admin-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds/000123.sst",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559186145797698-MSXWQc59LU",
+        "request_id": "7AC04AB9980560C2:B"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 20
+    },
+    {
+      "case": "get-admin-rhea/pebbleds/000123.sst-001795559186145797698-MSXWQc59LU",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559186145797698-MSXWQc59LU",
+        "request_id": "618EE4F54D4549DF:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 21
+    },
+    {
+      "case": "put-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds/000123.sst",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559186560533264-a1_MdPWpiH",
+        "request_id": "EC8E46981433FB7A:A"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 22
+    },
+    {
+      "case": "get-writer-rhea/pebbleds/000123.sst-001795559186560533264-a1_MdPWpiH",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559186560533264-a1_MdPWpiH",
+        "request_id": "D0D81830F20ABE04:A"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 23
+    },
+    {
+      "case": "put-admin-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-other-project/000123.sst",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559186706541422-luRtXp1H26",
+        "request_id": "62D8354D58FD5D90:B"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 24
+    },
+    {
+      "case": "get-admin-other-project/000123.sst-001795559186706541422-luRtXp1H26",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559186706541422-luRtXp1H26",
+        "request_id": "22D2643099E9FF0E:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 25
+    },
+    {
+      "case": "put-admin-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds-evil/000123.sst",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559186830181604-AVsC4vRuza",
+        "request_id": "D870FB15F6C1E6E8:B"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 26
+    },
+    {
+      "case": "get-admin-rhea/pebbleds-evil/000123.sst-001795559186830181604-AVsC4vRuza",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559186830181604-AVsC4vRuza",
+        "request_id": "2E28545E9DAA9309:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 27
+    },
+    {
+      "case": "put-admin-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb-rhea/pebbleds/000123.sst",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559186952789169-eTZEJ5aYjQ",
+        "request_id": "D0A11EF333C557EC:B"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 28
+    },
+    {
+      "case": "get-admin-rhea/pebbleds/000123.sst-001795559186952789169-eTZEJ5aYjQ",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559186952789169-eTZEJ5aYjQ",
+        "request_id": "A29BAD54D3A7C12E:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 29
+    },
+    {
+      "case": "put-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds/marker.manifest.000017.MANIFEST-000123",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559187421515949-hRJeV2DWzc",
+        "request_id": "8B2320456B53872C:B"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 30
+    },
+    {
+      "case": "get-publisher-rhea/pebbleds/marker.manifest.000017.MANIFEST-000123-001795559187421515949-hRJeV2DWzc",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559187421515949-hRJeV2DWzc",
+        "request_id": "1FD4F89B38A6919B:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 31
+    },
+    {
+      "case": "verify-protected-version-inventory",
+      "evidence": {
+        "request_id": "8189D9EDED322189:B"
+      },
+      "expected": "ok",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 32
+    },
+    {
+      "case": "read-versioning-writer",
+      "evidence": {
+        "request_id": "0D5D30BAF817FEB5:B"
+      },
+      "expected": "ok",
+      "method": "get_bucket_versioning",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 33
+    },
+    {
+      "case": "read-location-writer",
+      "evidence": {
+        "request_id": "51F1B99F5BC0A1C7:A"
+      },
+      "expected": "ok",
+      "method": "get_bucket_location",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 34
+    },
+    {
+      "case": "get-writer-rhea/pebbleds/marker.manifest-001795559185494414156-BXYvTzvDSC",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185494414156-BXYvTzvDSC",
+        "request_id": "2A13957F46823D68:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 35
+    },
+    {
+      "case": "get-writer-rhea/pebbleds/marker.manifest.000017.MANIFEST-000123-001795559187421515949-hRJeV2DWzc",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559187421515949-hRJeV2DWzc",
+        "request_id": "AC785881611BD8A8:A"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 36
+    },
+    {
+      "case": "get-writer-rhea/pebbleds/marker.manifest.000018.MANIFEST-000124-001795559185618515435-FBEWeEB02f",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185618515435-FBEWeEB02f",
+        "request_id": "28921516511E51D7:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 37
+    },
+    {
+      "case": "get-writer-rhea/pebbleds/marker.format-version-001795559185739327393-HZBIUbL4Qc",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185739327393-HZBIUbL4Qc",
+        "request_id": "9055345A0EF27576:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 38
+    },
+    {
+      "case": "get-writer-rhea/pebbleds/marker.format-version.000012.013-001795559185869704709-uK6-z2Ewfa",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185869704709-uK6-z2Ewfa",
+        "request_id": "7AAA072E1DC16E86:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 39
+    },
+    {
+      "case": "get-writer-rhea/pebbleds/CURRENT-001795559185987260158-3CileDj8zK",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185987260158-3CileDj8zK",
+        "request_id": "7CB640D8BB3D613A:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 40
+    },
+    {
+      "case": "list_objects_v2-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'rhea/pebbleds/'",
+      "evidence": {
+        "request_id": "214F26DF1E6418B3:A"
+      },
+      "expected": "ok",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 41
+    },
+    {
+      "case": "list_object_versions-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'rhea/pebbleds/'",
+      "evidence": {
+        "request_id": "DF17E6A39B3DE3C2:B"
+      },
+      "expected": "ok",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 42
+    },
+    {
+      "case": "list_objects_v2-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-None",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 43
+    },
+    {
+      "case": "list_object_versions-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-None",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 44
+    },
+    {
+      "case": "list_objects_v2-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-''",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 45
+    },
+    {
+      "case": "list_object_versions-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-''",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 46
+    },
+    {
+      "case": "list_objects_v2-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'other-project/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 47
+    },
+    {
+      "case": "list_object_versions-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'other-project/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 48
+    },
+    {
+      "case": "list_objects_v2-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'rhea/pebbleds-evil/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 49
+    },
+    {
+      "case": "list_object_versions-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'rhea/pebbleds-evil/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 50
+    },
+    {
+      "case": "list_objects_v2-writer-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb-'rhea/pebbleds/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 51
+    },
+    {
+      "case": "list_object_versions-writer-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb-'rhea/pebbleds/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 52
+    },
+    {
+      "case": "deny-bucket-admin-writer-get_bucket_acl",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "get_bucket_acl",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 53
+    },
+    {
+      "case": "deny-bucket-admin-writer-get_bucket_policy",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "get_bucket_policy",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 54
+    },
+    {
+      "case": "deny-bucket-admin-writer-put_bucket_versioning",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_bucket_versioning",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 55
+    },
+    {
+      "case": "read-versioning-publisher",
+      "evidence": {
+        "request_id": "AD6494A69AE791D7:B"
+      },
+      "expected": "ok",
+      "method": "get_bucket_versioning",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 56
+    },
+    {
+      "case": "read-location-publisher",
+      "evidence": {
+        "request_id": "C12A494EED763980:B"
+      },
+      "expected": "ok",
+      "method": "get_bucket_location",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 57
+    },
+    {
+      "case": "get-publisher-rhea/pebbleds/marker.manifest-001795559185494414156-BXYvTzvDSC",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185494414156-BXYvTzvDSC",
+        "request_id": "EAE608AF6659CEC9:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 58
+    },
+    {
+      "case": "get-publisher-rhea/pebbleds/marker.manifest.000017.MANIFEST-000123-001795559187421515949-hRJeV2DWzc",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559187421515949-hRJeV2DWzc",
+        "request_id": "17B480E330172C4C:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 59
+    },
+    {
+      "case": "get-publisher-rhea/pebbleds/marker.manifest.000018.MANIFEST-000124-001795559185618515435-FBEWeEB02f",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185618515435-FBEWeEB02f",
+        "request_id": "8E1FDC4D28741D2E:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 60
+    },
+    {
+      "case": "get-publisher-rhea/pebbleds/marker.format-version-001795559185739327393-HZBIUbL4Qc",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185739327393-HZBIUbL4Qc",
+        "request_id": "35A92CF04D55011E:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 61
+    },
+    {
+      "case": "get-publisher-rhea/pebbleds/marker.format-version.000012.013-001795559185869704709-uK6-z2Ewfa",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185869704709-uK6-z2Ewfa",
+        "request_id": "B9CEBD999D5B0BE9:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 62
+    },
+    {
+      "case": "get-publisher-rhea/pebbleds/CURRENT-001795559185987260158-3CileDj8zK",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559185987260158-3CileDj8zK",
+        "request_id": "927CF98270768871:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 63
+    },
+    {
+      "case": "list_objects_v2-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'rhea/pebbleds/marker.manifest'",
+      "evidence": {
+        "request_id": "49D5B565EAE77BC0:B"
+      },
+      "expected": "ok",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 64
+    },
+    {
+      "case": "list_object_versions-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'rhea/pebbleds/marker.manifest'",
+      "evidence": {
+        "request_id": "A3432A27EF58E570:B"
+      },
+      "expected": "ok",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 65
+    },
+    {
+      "case": "list_objects_v2-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-None",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 66
+    },
+    {
+      "case": "list_object_versions-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-None",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 67
+    },
+    {
+      "case": "list_objects_v2-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-''",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 68
+    },
+    {
+      "case": "list_object_versions-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-''",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 69
+    },
+    {
+      "case": "list_objects_v2-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'other-project/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 70
+    },
+    {
+      "case": "list_object_versions-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'other-project/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 71
+    },
+    {
+      "case": "list_objects_v2-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'rhea/pebbleds-evil/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 72
+    },
+    {
+      "case": "list_object_versions-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'rhea/pebbleds-evil/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 73
+    },
+    {
+      "case": "list_objects_v2-publisher-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb-'rhea/pebbleds/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 74
+    },
+    {
+      "case": "list_object_versions-publisher-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb-'rhea/pebbleds/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 75
+    },
+    {
+      "case": "list_objects_v2-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'rhea/pebbleds/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_objects_v2",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 76
+    },
+    {
+      "case": "list_object_versions-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-'rhea/pebbleds/'",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 77
+    },
+    {
+      "case": "deny-bucket-admin-publisher-get_bucket_acl",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "get_bucket_acl",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 78
+    },
+    {
+      "case": "deny-bucket-admin-publisher-get_bucket_policy",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "get_bucket_policy",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 79
+    },
+    {
+      "case": "deny-bucket-admin-publisher-put_bucket_versioning",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_bucket_versioning",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 80
+    },
+    {
+      "case": "deny-writer-marker.manifest-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 81
+    },
+    {
+      "case": "deny-writer-marker.manifest-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 82
+    },
+    {
+      "case": "deny-writer-marker.manifest-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 83
+    },
+    {
+      "case": "deny-writer-marker.manifest-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 84
+    },
+    {
+      "case": "deny-writer-marker.manifest-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 85
+    },
+    {
+      "case": "deny-writer-marker.manifest.000017.MANIFEST-000123-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 86
+    },
+    {
+      "case": "deny-writer-marker.manifest.000017.MANIFEST-000123-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 87
+    },
+    {
+      "case": "deny-writer-marker.manifest.000017.MANIFEST-000123-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 88
+    },
+    {
+      "case": "deny-writer-marker.manifest.000017.MANIFEST-000123-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 89
+    },
+    {
+      "case": "deny-writer-marker.manifest.000017.MANIFEST-000123-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 90
+    },
+    {
+      "case": "deny-writer-marker.manifest.000018.MANIFEST-000124-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 91
+    },
+    {
+      "case": "deny-writer-marker.manifest.000018.MANIFEST-000124-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 92
+    },
+    {
+      "case": "deny-writer-marker.manifest.000018.MANIFEST-000124-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 93
+    },
+    {
+      "case": "deny-writer-marker.manifest.000018.MANIFEST-000124-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 94
+    },
+    {
+      "case": "deny-writer-marker.manifest.000018.MANIFEST-000124-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 95
+    },
+    {
+      "case": "deny-writer-marker.format-version-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 96
+    },
+    {
+      "case": "deny-writer-marker.format-version-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 97
+    },
+    {
+      "case": "deny-writer-marker.format-version-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 98
+    },
+    {
+      "case": "deny-writer-marker.format-version-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 99
+    },
+    {
+      "case": "deny-writer-marker.format-version-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 100
+    },
+    {
+      "case": "deny-writer-marker.format-version.000012.013-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 101
+    },
+    {
+      "case": "deny-writer-marker.format-version.000012.013-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 102
+    },
+    {
+      "case": "deny-writer-marker.format-version.000012.013-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 103
+    },
+    {
+      "case": "deny-writer-marker.format-version.000012.013-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 104
+    },
+    {
+      "case": "deny-writer-marker.format-version.000012.013-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 105
+    },
+    {
+      "case": "deny-writer-CURRENT-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 106
+    },
+    {
+      "case": "deny-writer-CURRENT-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 107
+    },
+    {
+      "case": "deny-writer-CURRENT-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 108
+    },
+    {
+      "case": "deny-writer-CURRENT-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 109
+    },
+    {
+      "case": "deny-writer-CURRENT-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 110
+    },
+    {
+      "case": "deny-lateral-writer-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb-rhea/pebbleds/000123.sst-get_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 111
+    },
+    {
+      "case": "deny-lateral-writer-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb-rhea/pebbleds/000123.sst-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 112
+    },
+    {
+      "case": "deny-lateral-writer-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb-rhea/pebbleds/000123.sst-delete_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 113
+    },
+    {
+      "case": "deny-lateral-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-other-project/000123.sst-get_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 114
+    },
+    {
+      "case": "deny-lateral-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-other-project/000123.sst-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 115
+    },
+    {
+      "case": "deny-lateral-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-other-project/000123.sst-delete_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 116
+    },
+    {
+      "case": "deny-lateral-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds-evil/000123.sst-get_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 117
+    },
+    {
+      "case": "deny-lateral-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds-evil/000123.sst-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 118
+    },
+    {
+      "case": "deny-lateral-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds-evil/000123.sst-delete_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 119
+    },
+    {
+      "case": "deny-publisher-marker.manifest-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 120
+    },
+    {
+      "case": "deny-publisher-marker.manifest-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 121
+    },
+    {
+      "case": "deny-publisher-marker.manifest-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 122
+    },
+    {
+      "case": "deny-publisher-marker.manifest-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 123
+    },
+    {
+      "case": "deny-publisher-marker.manifest-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 124
+    },
+    {
+      "case": "deny-publisher-marker.manifest.000017.MANIFEST-000123-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 125
+    },
+    {
+      "case": "deny-publisher-marker.manifest.000017.MANIFEST-000123-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 126
+    },
+    {
+      "case": "deny-publisher-marker.manifest.000018.MANIFEST-000124-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 127
+    },
+    {
+      "case": "deny-publisher-marker.manifest.000018.MANIFEST-000124-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 128
+    },
+    {
+      "case": "deny-publisher-marker.manifest.000018.MANIFEST-000124-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 129
+    },
+    {
+      "case": "deny-publisher-marker.manifest.000018.MANIFEST-000124-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 130
+    },
+    {
+      "case": "deny-publisher-marker.manifest.000018.MANIFEST-000124-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 131
+    },
+    {
+      "case": "deny-publisher-marker.format-version-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 132
+    },
+    {
+      "case": "deny-publisher-marker.format-version-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 133
+    },
+    {
+      "case": "deny-publisher-marker.format-version-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 134
+    },
+    {
+      "case": "deny-publisher-marker.format-version-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 135
+    },
+    {
+      "case": "deny-publisher-marker.format-version-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 136
+    },
+    {
+      "case": "deny-publisher-marker.format-version.000012.013-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 137
+    },
+    {
+      "case": "deny-publisher-marker.format-version.000012.013-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 138
+    },
+    {
+      "case": "deny-publisher-marker.format-version.000012.013-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 139
+    },
+    {
+      "case": "deny-publisher-marker.format-version.000012.013-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 140
+    },
+    {
+      "case": "deny-publisher-marker.format-version.000012.013-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 141
+    },
+    {
+      "case": "deny-publisher-CURRENT-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 142
+    },
+    {
+      "case": "deny-publisher-CURRENT-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 143
+    },
+    {
+      "case": "deny-publisher-CURRENT-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 144
+    },
+    {
+      "case": "deny-publisher-CURRENT-delete-False",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 145
+    },
+    {
+      "case": "deny-publisher-CURRENT-delete-True",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 146
+    },
+    {
+      "case": "deny-lateral-publisher-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb-rhea/pebbleds/000123.sst-get_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 147
+    },
+    {
+      "case": "deny-lateral-publisher-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb-rhea/pebbleds/000123.sst-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 148
+    },
+    {
+      "case": "deny-lateral-publisher-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb-rhea/pebbleds/000123.sst-delete_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 149
+    },
+    {
+      "case": "deny-lateral-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-other-project/000123.sst-get_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 150
+    },
+    {
+      "case": "deny-lateral-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-other-project/000123.sst-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 151
+    },
+    {
+      "case": "deny-lateral-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-other-project/000123.sst-delete_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 152
+    },
+    {
+      "case": "deny-lateral-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds-evil/000123.sst-get_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 153
+    },
+    {
+      "case": "deny-lateral-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds-evil/000123.sst-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 154
+    },
+    {
+      "case": "deny-lateral-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds-evil/000123.sst-delete_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 155
+    },
+    {
+      "case": "deny-publisher-data-get_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 156
+    },
+    {
+      "case": "deny-publisher-data-put_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 157
+    },
+    {
+      "case": "deny-publisher-data-copy_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 158
+    },
+    {
+      "case": "deny-publisher-data-delete_object",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 159
+    },
+    {
+      "case": "deny-publisher-data-create_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 160
+    },
+    {
+      "case": "deny-writer-delete-data-version",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 161
+    },
+    {
+      "case": "get-writer-rhea/pebbleds/000123.sst-current",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559186560533264-a1_MdPWpiH",
+        "request_id": "4EEA5D419F4A76F3:A"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 162
+    },
+    {
+      "case": "copy-allowed-writer",
+      "evidence": {
+        "VersionId": "001795559200420378275-o_DlQZzJEE",
+        "request_id": "4F5FA03BA0A6C73C:A"
+      },
+      "expected": "ok",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 163
+    },
+    {
+      "case": "get-writer-rhea/pebbleds/acceptance-copy.sst-001795559200420378275-o_DlQZzJEE",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559200420378275-o_DlQZzJEE",
+        "request_id": "0A70B6208B94BD2F:A"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 164
+    },
+    {
+      "case": "copy-allowed-publisher",
+      "evidence": {
+        "VersionId": "001795559200579277736-icuV3gwt7i",
+        "request_id": "AE065368B0FF6A73:B"
+      },
+      "expected": "ok",
+      "method": "copy_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 165
+    },
+    {
+      "case": "get-publisher-rhea/pebbleds/marker.manifest.000017.MANIFEST-000123-001795559200579277736-icuV3gwt7i",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559200579277736-icuV3gwt7i",
+        "request_id": "B9CE9F5A4E7AC148:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 166
+    },
+    {
+      "case": "put-writer-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds/acceptance-delete.sst",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559200722144876-C2BDw9tArK",
+        "request_id": "2D33CF7C9A9B1880:A"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 167
+    },
+    {
+      "case": "get-writer-rhea/pebbleds/acceptance-delete.sst-001795559200722144876-C2BDw9tArK",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559200722144876-C2BDw9tArK",
+        "request_id": "D5782912E8E8BBBE:A"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 168
+    },
+    {
+      "case": "writer-delete-current-data",
+      "evidence": {
+        "VersionId": "001795559200891749698-CtJnM6Mi2e",
+        "request_id": "14E1EB2705CE4E36:A"
+      },
+      "expected": "ok",
+      "method": "delete_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 169
+    },
+    {
+      "case": "get-admin-rhea/pebbleds/acceptance-delete.sst-001795559200722144876-C2BDw9tArK",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559200722144876-C2BDw9tArK",
+        "request_id": "66EF562DABDDED9F:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 170
+    },
+    {
+      "case": "create-multipart-writer",
+      "evidence": {
+        "UploadId": "SnHJLcfyRCzumXferWfFDvgJex1sc2X8rEG_fDikjvNVm98ca9j8xMcdTzVky54t4BvIsfqG91tfJ_YTl6YP84N_9f7H19506JFh54xn_0qVXSk0562yiGCuwNfwf5-8",
+        "request_id": "FACF08910D2A7149:A"
+      },
+      "expected": "ok",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 171
+    },
+    {
+      "case": "upload-part-writer",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "request_id": "1583C54C2B64F3F7:A"
+      },
+      "expected": "ok",
+      "method": "upload_part",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 172
+    },
+    {
+      "case": "list-parts-writer",
+      "evidence": {
+        "UploadId": "SnHJLcfyRCzumXferWfFDvgJex1sc2X8rEG_fDikjvNVm98ca9j8xMcdTzVky54t4BvIsfqG91tfJ_YTl6YP84N_9f7H19506JFh54xn_0qVXSk0562yiGCuwNfwf5-8",
+        "request_id": "A5C9EC72996E169C:A"
+      },
+      "expected": "ok",
+      "method": "list_parts",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 173
+    },
+    {
+      "case": "complete-multipart-writer",
+      "evidence": {
+        "ETag": "\"c5c371ceaa459a164c39860e7d144fca-1\"",
+        "VersionId": "001795559201074458773-fIXklUMyMy",
+        "request_id": "3004346BBF8731E6:A"
+      },
+      "expected": "ok",
+      "method": "complete_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 174
+    },
+    {
+      "case": "get-writer-rhea/pebbleds/acceptance-multipart.sst-001795559201074458773-fIXklUMyMy",
+      "evidence": {
+        "ETag": "\"c5c371ceaa459a164c39860e7d144fca-1\"",
+        "VersionId": "001795559201074458773-fIXklUMyMy",
+        "request_id": "52BF8EB9634637E9:A"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 175
+    },
+    {
+      "case": "create-multipart-publisher",
+      "evidence": {
+        "UploadId": "FybU3Ruu1owK5MQhV_T0xcUVLgYu4OBNwxF1rbNKUrahyXYfm1o1YwxsQf5D-aaRFfFZ5cu73GwlsggJ2cdlzXb5JmLUtD2uz7QSFXAGMrpLkZCws5vIFlKViyYyRHUJ",
+        "request_id": "AD9CC1095619404F:B"
+      },
+      "expected": "ok",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 176
+    },
+    {
+      "case": "upload-part-publisher",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "request_id": "4783B76FB733A2DD:A"
+      },
+      "expected": "ok",
+      "method": "upload_part",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 177
+    },
+    {
+      "case": "deny-publisher-abort-approved-upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "abort_multipart_upload",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 178
+    },
+    {
+      "case": "complete-multipart-publisher",
+      "evidence": {
+        "ETag": "\"c5c371ceaa459a164c39860e7d144fca-1\"",
+        "VersionId": "001795559201531090253-zevCJnweV3",
+        "request_id": "022B4532B5F37B1C:B"
+      },
+      "expected": "ok",
+      "method": "complete_multipart_upload",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 179
+    },
+    {
+      "case": "get-publisher-rhea/pebbleds/marker.manifest.000017.MANIFEST-000123-001795559201531090253-zevCJnweV3",
+      "evidence": {
+        "ETag": "\"c5c371ceaa459a164c39860e7d144fca-1\"",
+        "VersionId": "001795559201531090253-zevCJnweV3",
+        "request_id": "3FB5468DECC9041D:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 180
+    },
+    {
+      "case": "writer-create-abortable-upload",
+      "evidence": {
+        "UploadId": "fTW7RtdNUKuni1A8XchqrNoQEhAHa-OQCEo1e66fffeIoZoqwFUUHMPSdMLy0vF4vS_cCLcfR0CIRM0C13yQK_L5IYZ7pk-OnaVYqh4rr_4XrlAa9wHzDv-Xpzirc1cr",
+        "request_id": "AF606A17A6766512:A"
+      },
+      "expected": "ok",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 181
+    },
+    {
+      "case": "writer-abort-data-upload",
+      "evidence": {
+        "request_id": "E4605C65734FAF92:A"
+      },
+      "expected": "ok",
+      "method": "abort_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 182
+    },
+    {
+      "case": "seed-protected-upload",
+      "evidence": {
+        "UploadId": "NBtno-5bWyd0lbn2Y2ktdzfitYs0NpMCyhVmWs2WP9Hcc4ZA8YMRB4yB_BL6o7QGFraYT-yaf60mx5aPA5y8KQT7yA9N3kQT7EbG2anst7zx04HBGEON5BAurayFl9YJ",
+        "request_id": "E9467EC9367C43E2:B"
+      },
+      "expected": "ok",
+      "method": "create_multipart_upload",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 183
+    },
+    {
+      "case": "seed-protected-part",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "request_id": "39E531FB5AD2424A:B"
+      },
+      "expected": "ok",
+      "method": "upload_part",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 184
+    },
+    {
+      "case": "deny-protected-multipart-writer-upload_part",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "upload_part",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 185
+    },
+    {
+      "case": "deny-protected-multipart-writer-upload_part_copy",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "upload_part_copy",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 186
+    },
+    {
+      "case": "deny-protected-multipart-writer-complete_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "complete_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 187
+    },
+    {
+      "case": "deny-protected-multipart-writer-abort_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "abort_multipart_upload",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 188
+    },
+    {
+      "case": "protected-list-parts-writer",
+      "evidence": {
+        "UploadId": "NBtno-5bWyd0lbn2Y2ktdzfitYs0NpMCyhVmWs2WP9Hcc4ZA8YMRB4yB_BL6o7QGFraYT-yaf60mx5aPA5y8KQT7yA9N3kQT7EbG2anst7zx04HBGEON5BAurayFl9YJ",
+        "request_id": "89DB166C493E6959:B"
+      },
+      "expected": "ok",
+      "method": "list_parts",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 189
+    },
+    {
+      "case": "deny-protected-multipart-publisher-upload_part",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "upload_part",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 190
+    },
+    {
+      "case": "deny-protected-multipart-publisher-upload_part_copy",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "upload_part_copy",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 191
+    },
+    {
+      "case": "deny-protected-multipart-publisher-complete_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "complete_multipart_upload",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 192
+    },
+    {
+      "case": "deny-protected-multipart-publisher-abort_multipart_upload",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "abort_multipart_upload",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 193
+    },
+    {
+      "case": "protected-list-parts-publisher",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "list_parts",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 194
+    },
+    {
+      "case": "deny-bulk-marker-delete-writer",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "bulk_deny",
+      "method": "delete_objects",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 195
+    },
+    {
+      "case": "deny-bulk-marker-delete-publisher",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "bulk_deny",
+      "method": "delete_objects",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 196
+    },
+    {
+      "case": "late-writer-current-denial",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "writer",
+      "sequence": 197
+    },
+    {
+      "case": "late-publisher-data-denial",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "AccessDenied",
+        "http_status": 403
+      },
+      "expected": "deny",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 198
+    },
+    {
+      "case": "conditional-existing-marker-reject-IfNoneMatch",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "PreconditionFailed",
+        "http_status": 412
+      },
+      "expected": "precondition",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 199
+    },
+    {
+      "case": "conditional-existing-marker-reject-IfMatch",
+      "evidence": {
+        "error_class": "ClientError",
+        "error_code": "PreconditionFailed",
+        "http_status": 412
+      },
+      "expected": "precondition",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 200
+    },
+    {
+      "case": "put-publisher-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb-rhea/pebbleds/marker.manifest.000017.MANIFEST-000123",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559204790321159-jsSpeiOSE-",
+        "request_id": "391A9CA3675797CA:B"
+      },
+      "expected": "ok",
+      "method": "put_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 201
+    },
+    {
+      "case": "get-publisher-rhea/pebbleds/marker.manifest.000017.MANIFEST-000123-001795559204790321159-jsSpeiOSE-",
+      "evidence": {
+        "ETag": "\"2e67b35a970ee8614b493101e5919987\"",
+        "VersionId": "001795559204790321159-jsSpeiOSE-",
+        "request_id": "25399D69016B29AB:B"
+      },
+      "expected": "ok",
+      "method": "get_object",
+      "result": "PASS",
+      "role": "publisher",
+      "sequence": 202
+    },
+    {
+      "case": "verify-protected-version-inventory",
+      "evidence": {
+        "request_id": "1FAAD718025E19A8:B"
+      },
+      "expected": "ok",
+      "method": "list_object_versions",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 203
+    },
+    {
+      "case": "final-versioning-rhea-gen14-iam-test-20261111-48be1ecd7cc848fb",
+      "evidence": {
+        "request_id": "A55ADD48DC21C981:B"
+      },
+      "expected": "ok",
+      "method": "get_bucket_versioning",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 204
+    },
+    {
+      "case": "final-versioning-rhea-gen14-iam-control-20261111-48be1ecd7cc848fb",
+      "evidence": {
+        "request_id": "E12D66A0F341D844:B"
+      },
+      "expected": "ok",
+      "method": "get_bucket_versioning",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 205
+    },
+    {
+      "case": "cleanup-own-upload",
+      "evidence": {
+        "request_id": "2DBB76F6899F9715:B"
+      },
+      "expected": "ok",
+      "method": "abort_multipart_upload",
+      "result": "PASS",
+      "role": "admin",
+      "sequence": 206
+    }
+  ],
+  "intent_receipt_links_verified": 207,
+  "journal_files": 416,
+  "journal_sha256": "f3a5d60fe8259ef327b786079b7130d45cf1c37ddfc2ccbb8e4e98eebbc314ef",
+  "result": {
+    "actual_s3_enforcement_proven": true,
+    "buckets": [
+      "rhea-gen14-iam-test-20261111-48be1ecd7cc848fb",
+      "rhea-gen14-iam-control-20261111-48be1ecd7cc848fb"
+    ],
+    "checks": 207,
+    "completed_at_utc": "2026-11-24T22:26:45.117371+00:00",
+    "conditional_publication_proven": true,
+    "coverage_exclusions": [
+      "Wasabi custom MOVE",
+      "Wasabi compose",
+      "Wasabi append",
+      "production or clone resources"
+    ],
+    "denial_observation_intervals_seconds": {
+      "publisher": 4.178166671888903,
+      "writer": 10.289513544877991
+    },
+    "explicit_denials": 123,
+    "owned_multipart_uploads_remaining": 0,
+    "passed": 207,
+    "production_cutover_authorized": false,
+    "result": "PASS",
+    "retained_objects": true,
+    "scope": "DISPOSABLE_BUCKETS_ONLY",
+    "started_at_utc": "2026-11-24T22:26:22.328972+00:00"
+  },
+  "source_sha256": "eb46ed0a0bf0865ceab4176ac816970b7e1d43089821eeeef244b96570a3c4c6",
+  "limitations": [
+    "Standard S3 operation matrix only; custom Wasabi MOVE, compose and append are not exercised.",
+    "Exact full version-history comparison covers protected marker keys; lateral/data sentinels have verified seed bodies and tested denied operations.",
+    "Early and late denials were observed within this 23-second run, not as a continuous or long-duration test.",
+    "Negative responses record error class/code/status but not provider request IDs.",
+    "rclone dirty-cache quarantine, lifecycle handoff, crash recovery and clone-compaction execution remain separate gates."
+  ]
+}
