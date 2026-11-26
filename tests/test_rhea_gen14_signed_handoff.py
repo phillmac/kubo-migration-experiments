@@ -80,3 +80,10 @@ class HandoffTest(unittest.TestCase):
             h.collect_stopped_reader()
             written.assert_called_once_with('reader-exit143.json', status)
             cmd.assert_called_with(['/usr/bin/systemctl', 'reset-failed', h.READER])
+
+    def test_readback_release_cannot_start_another_handoff(self):
+        with patch.object(h, 'INSTALL', h.READBACK_INSTALL), patch.object(h.os, 'umask'), \
+             patch.object(h.logging, 'disable'), patch.object(h, 'verify_release') as verify:
+            with self.assertRaises(h.admission.Refusal):
+                h.main('run')
+            verify.assert_not_called()

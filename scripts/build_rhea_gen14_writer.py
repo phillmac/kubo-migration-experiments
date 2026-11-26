@@ -24,7 +24,7 @@ def build(go, cache, output):
     sums = pilot.module_sums(inputs[str(pilot.PILOT / 'deps/go.sum')])
     with tempfile.TemporaryDirectory(prefix='rhea-gen14-plan-') as temp:
         work = Path(temp)
-        (work / 'tmp').mkdir()
+        (work / 'tmp').mkdir(mode=0o700)
         modules, sources, _ = pilot.materialize_modules(cache, work, sums)
         pebble = work / 'pebble-v1.1.3'
         shutil.copytree(sources[pilot.PEBBLE, pilot.VERSION], pebble)
@@ -37,7 +37,7 @@ def build(go, cache, output):
         for name in ('worker_linux.go', 'prepare.go', 'supervisor_test.go', 'marker_transition_test.go'):
             shutil.copyfile(pilot.ROOT / 'cmd/pebble-format-v1/gen14' / name, command / 'multistep' / name)
         subprocess.run([go, 'test', '-v', '-mod=readonly', '-p=2', '-count=1', '-timeout=240s',
-                        '-run=^TestGeneration14', './multistep'], cwd=command, env=env, check=True)
+                        '-run=^TestGeneration14', './multistep'], cwd=command, env=env, umask=0o077, check=True)
         subprocess.run([go, 'build', '-mod=readonly', '-trimpath', '-buildvcs=false', '-ldflags=-buildid=',
                         '-p=2', '-o', work / 'rhea-gen14', './gen14'], cwd=command, env=env, check=True)
         with (work / 'rhea-gen14').open('rb') as src, output.open('xb') as dst:

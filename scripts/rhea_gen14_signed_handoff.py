@@ -15,9 +15,14 @@ import time
 import types
 
 BASE = Path('/root/.local/share')
-INSTALL = BASE / 'rhea-gen14-signed-handoff-20261127'
+TRANSACTION_INSTALL = BASE / 'rhea-gen14-signed-handoff-20261127'
+READBACK_INSTALL = BASE / 'rhea-gen14-handoff-readback-20261127'
+ORIGINAL_RELEASE = '446b7a37437f91306f85b13e00a6938e82a243a3c0c844c8c1a68a520879ff7f'
+INSTALL = TRANSACTION_INSTALL
 if __name__ == '__main__':
-    if Path(__file__) != INSTALL / 'rhea_gen14_signed_handoff.py' or os.geteuid() != 0:
+    INSTALL = Path(__file__).parent
+    if (INSTALL not in (TRANSACTION_INSTALL, READBACK_INSTALL) or Path(__file__).name != 'rhea_gen14_signed_handoff.py'
+            or os.geteuid() != 0):
         raise SystemExit('fixed root installation required')
     sys.path.insert(0, str(INSTALL))
 
@@ -67,7 +72,8 @@ def verify_release():
                               admission.protected_read(INSTALL / 'release.pub'), key_sha256=RELEASE_KEY,
                               domain=admission.DEPLOYMENT_DOMAIN)
     manifest = admission.parse(raw)
-    require(set(manifest) == {'scope', 'files'} and manifest['scope'] == SCOPE, 'wrong release scope')
+    scope = SCOPE + '-readback' if INSTALL == READBACK_INSTALL else SCOPE
+    require(set(manifest) == {'scope', 'files'} and manifest['scope'] == scope, 'wrong release scope')
     files = manifest['files']
     require(set(files) == {name + '.py' for name in MODULES} | {'worker', 'inspector'}
             and files['worker'] == WORKER_SHA and files['inspector'] == reopen.INSPECTOR_SHA,
@@ -405,12 +411,21 @@ def run():
 def finish():
     # Repeated recovery verifies only read-only evidence; it never launches a worker.
     claims = admission.parse(clone.read_path(TRIAL / 'intent.json'))
-    raw = admission.protected_read(INSTALL / 'handoff.json')
+    raw = admission.protected_read(TRANSACTION_INSTALL / 'handoff.json')
     require(admission.canonical(claims) == raw, 'retained handoff intent changed')
-    sig = admission.protected_read(INSTALL / 'handoff.sig')
-    checked_claims(raw, sig, admission.protected_read(INSTALL / 'handoff.pub'), claims['binding'], claims['issued'])
-    require(claims['binding']['release_sha256'] == verify_release(), 'release differs from signed handoff')
-    nonce = admission.parse(clone.read_path(INSTALL / 'consumed-nonces' / (claims['nonce'] + '.json')))
+    sig = admission.protected_read(TRANSACTION_INSTALL / 'handoff.sig')
+    checked_claims(raw, sig, admission.protected_read(TRANSACTION_INSTALL / 'handoff.pub'), claims['binding'], claims['issued'])
+    current_release = verify_release()
+    if INSTALL == READBACK_INSTALL:
+        archive = admission.protected_read(TRANSACTION_INSTALL / 'release.json')
+        admission.verify_detached(archive, admission.protected_read(TRANSACTION_INSTALL / 'release.sig'),
+                                  admission.protected_read(TRANSACTION_INSTALL / 'release.pub'),
+                                  key_sha256=RELEASE_KEY, domain=admission.DEPLOYMENT_DOMAIN)
+        require(admission.sha(archive) == ORIGINAL_RELEASE and admission.parse(archive)['scope'] == SCOPE,
+                'original handoff release differs')
+        current_release = ORIGINAL_RELEASE
+    require(claims['binding']['release_sha256'] == current_release, 'release differs from signed handoff')
+    nonce = admission.parse(clone.read_path(TRANSACTION_INSTALL / 'consumed-nonces' / (claims['nonce'] + '.json')))
     require(nonce == dict(schema=1, claims_sha256=admission.sha(raw), signature_sha256=admission.sha(sig),
                           nonce=claims['nonce']), 'consumed admission differs')
     before = claims['binding']['reader']
@@ -444,6 +459,9 @@ def finish():
 def main(mode):
     logging.disable(logging.CRITICAL)
     os.umask(0o077)
+    if INSTALL == READBACK_INSTALL:
+        require(mode == 'verify-restored' and (TRIAL / 'complete.json').is_file(),
+                'readback release can only verify a completed handoff')
     verify_release()
     with admission.protected_directory(admission.WRITER_LOCK.parent, private=True) as parent:
         admission.read_at(parent, admission.WRITER_LOCK.name)
