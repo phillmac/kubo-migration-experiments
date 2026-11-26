@@ -457,6 +457,47 @@ def response_ok(value):
     p.require('Error' not in value, 'embedded provider error')
 
 
+def publication_delta(before, after, key, payload):
+    """Compare two complete, versioned histories without relying on a PUT reply."""
+    def index(rows):
+        versions = {}
+        latest = {}
+        for row in rows:
+            name, version = row['key'], row['version']
+            p.require(live.opaque(name) and live.opaque(version) and live.opaque(row['etag'])
+                      and type(row['bytes']) is int and row['bytes'] >= 0
+                      and type(row['sha256']) is str and re.fullmatch('[a-f0-9]{64}', row['sha256'])
+                      and type(row['latest']) is bool and (name, version) not in versions,
+                      'invalid protected version in publication history')
+            versions[name, version] = row
+            latest[name] = latest.get(name, 0) + int(row['latest'])
+        p.require(all(count == 1 for count in latest.values()), 'ambiguous latest version in history')
+        return versions
+
+    previous, current = index(before), index(after)
+    if previous == current:
+        return 'BASELINE_UNCHANGED', None
+    extra = current.keys() - previous.keys()
+    if len(extra) == 1:
+        name, version = next(iter(extra))
+        new = current[name, version]
+        if (name == key and new['latest'] and new['bytes'] == len(payload)
+                and new['sha256'] == p.sha(payload) and all(
+                    current.get(identity) == (dict(old, latest=False) if old['key'] == key else old)
+                    for identity, old in previous.items())):
+            return 'EXPECTED_VERSION_OBSERVED', version
+    return 'CONFLICTING_HISTORY', None
+
+
+def s3_client(key, secret):
+    import boto3
+    from botocore.config import Config
+    config = Config(retries={'total_max_attempts': 1, 'mode': 'standard'}, connect_timeout=5,
+                    read_timeout=10, signature_version='v4', proxies={}, s3={'addressing_style': 'path'})
+    return boto3.client('s3', endpoint_url=p.S3_ENDPOINT, region_name='ca-central-1',
+                        aws_access_key_id=key, aws_secret_access_key=secret, config=config)
+
+
 class Cloud:
     """Read-only admin observations; publisher credential is loaded after proof."""
     def __init__(self, account, admin, publisher_factory):
@@ -503,13 +544,13 @@ class Cloud:
         p.require(body == PAYLOAD, 'rclone data readback differs')
         return version
 
-    def history(self):
+    def history(self, *, extra_key=None):
         value = self.admin.list_object_versions(**self.params(Prefix=REMOTE.prefix, MaxKeys=1000))
         response_ok(value)
         p.require(value.get('IsTruncated', False) is False, 'protected history is truncated')
         def protected(key):
             tail = key.removeprefix(REMOTE.prefix)
-            return key.startswith(REMOTE.prefix) and (tail == 'CURRENT' or any(
+            return key.startswith(REMOTE.prefix) and (key == extra_key or tail == 'CURRENT' or any(
                 tail == stem or tail.startswith(stem + '.') for stem in ('marker.manifest', 'marker.format-version')))
         rows = [row for row in value.get('Versions', []) if protected(row.get('Key', ''))]
         markers = [row for row in value.get('DeleteMarkers', []) if protected(row.get('Key', ''))]
@@ -546,15 +587,9 @@ class Cloud:
         body, observed, _ = self.read(key, version)
         p.require(observed == version and body == PUBLISH_PAYLOAD, 'conditional publication readback differs')
         after = self.history()
-        old = {(row['key'], row['version']): {k: v for k, v in row.items() if k != 'latest'} for row in baseline}
-        new = {(row['key'], row['version']): {k: v for k, v in row.items() if k != 'latest'} for row in after}
-        p.require(set(new) - set(old) == {(key, version)} and all(new.get(k) == v for k, v in old.items()),
-                  'publication changed unrelated protected versions')
-        p.require({(row['key'], row['version']): row['latest'] for row in after if row['key'] != key}
-                  == {(row['key'], row['version']): row['latest'] for row in baseline if row['key'] != key},
-                  'publication changed another protected latest version')
-        p.require(next(row for row in after if row['key'] == key and row['latest'])['version'] == version,
-                  'publication is not current')
+        outcome, observed_version = publication_delta(baseline, after, key, PUBLISH_PAYLOAD)
+        p.require(outcome == 'EXPECTED_VERSION_OBSERVED' and observed_version == version,
+                  'publication differs from expected protected version history')
         return dict(version_id=version, history_sha256=p.admin.iam.digest(after), protected_versions=len(after))
 
 
@@ -569,20 +604,13 @@ def load_context():
         p.require(p.sha(raw) == receipts[4]['result']['credential_file_sha256'], 'writer credential changed')
         writer = p.admin.iam.parse(raw)
         publisher_sha = receipts[5]['result']['credential_file_sha256']
-    import boto3
-    from botocore.config import Config
-    config = Config(retries={'total_max_attempts': 1, 'mode': 'standard'}, connect_timeout=5,
-                    read_timeout=10, signature_version='v4', proxies={}, s3={'addressing_style': 'path'})
-    def client(key, secret):
-        return boto3.client('s3', endpoint_url=p.S3_ENDPOINT, region_name='ca-central-1',
-                            aws_access_key_id=key, aws_secret_access_key=secret, config=config)
-    admin = client(*p.source_credentials())
+    admin = s3_client(*p.source_credentials())
     def publisher_factory():
         with managed.Journal() as credentials:
             raw = credentials.raw('publisher.json')
             p.require(p.sha(raw) == publisher_sha, 'publisher credential changed')
             saved = p.admin.iam.parse(raw)
-        return client(saved['AccessKeyId'], saved['SecretAccessKey'])
+        return s3_client(saved['AccessKeyId'], saved['SecretAccessKey'])
     return writer, Cloud(binding['identity']['account'], admin, publisher_factory), verified['plan_sha256']
 
 

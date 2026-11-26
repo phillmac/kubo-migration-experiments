@@ -16,6 +16,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import rhea_gen14_rclone_rehearsal as r
+import rhea_gen14_publication_recovery as recovery
 
 SECRET = 'OFFLINE-WRITER-SECRET-CANARY'
 WRITER = dict(role='writer', endpoint=r.p.S3_ENDPOINT, region='ca-central-1',
@@ -476,6 +477,84 @@ class CloudChecksTests(unittest.TestCase):
                 publisher = self.publisher(corrupt_old=corrupt, missing_version=missing)
                 with self.assertRaises(r.REFUSAL): self.cloud.publish(baseline)
                 publisher.close.assert_called_once_with()
+
+
+class LostAcknowledgementTests(unittest.TestCase):
+    def setUp(self):
+        self.admin, self.journal, self.publisher = CloudAdmin(), Journal(), Mock()
+        self.cloud = r.Cloud('123456789012', self.admin, None)
+        self.enterContext(patch.object(r.live, 'ConditionalS3', side_effect=lambda client: client))
+        self.close_proof, self.plan = 'f' * 64, 'a' * 64
+
+    def publish(self, case):
+        def put(**kwargs):
+            intent = self.journal.read('lost-ack-' + case + '.intent.json')
+            self.assertEqual(kwargs, self.cloud.params(intent['key'], Body=b'', **intent['condition']))
+            key = kwargs['Key']
+            for row in self.admin.rows:
+                if row['Key'] == key:
+                    row['IsLatest'] = False
+            self.admin.rows.append(dict(Key=key, VersionId='lost-ack-version', IsLatest=True))
+            self.admin.bodies['lost-ack-version'] = b''
+            return response()  # The version receipt is unavailable to the caller.
+        self.publisher.put_object.side_effect = put
+        with self.assertRaises(SystemExit) as caught:
+            recovery.send_once(self.journal, self.cloud, case, self.plan, self.close_proof,
+                               lambda: self.publisher, crash=sys.exit)
+        self.assertEqual(caught.exception.code, recovery.LOST_ACK_EXIT)
+        self.assertEqual(len(self.journal.records), 1)
+
+    def observe(self, case):
+        return recovery.observe(self.journal, self.cloud, case, self.plan, self.close_proof)
+
+    def test_existing_marker_after_lost_acknowledgement(self):
+        self.publish('replace')
+        out = self.observe('replace')
+        self.assertEqual(out['decision'], 'EXPECTED_VERSION_OBSERVED')
+        self.assertEqual(out['observed_version'], 'lost-ack-version')
+        self.assertFalse(out['retry_allowed'] or out['checkpoint_certified'])
+        with self.assertRaises(r.REFUSAL):
+            recovery.send_once(self.journal, self.cloud, 'replace', self.plan, self.close_proof,
+                               lambda: self.fail('reloaded publisher after pending intent'))
+        self.publisher.put_object.assert_called_once()
+
+    def test_create_only_and_newer_competing_version(self):
+        self.publish('create')
+        self.assertEqual(self.observe('create')['condition'], 'IfNoneMatch')
+        self.admin.rows[-1]['IsLatest'] = False
+        self.admin.rows.append(dict(Key=recovery.CREATE, VersionId='competing', IsLatest=True))
+        self.admin.bodies['competing'] = b''
+        out = self.observe('create')
+        self.assertEqual(out['decision'], 'CONFLICTING_HISTORY')
+        self.assertFalse(out['retry_allowed'])
+        self.assertIsNone(out['observed_version'])
+
+    def test_unchanged_baseline_rejects_replay_and_changed_intent(self):
+        baseline = self.cloud.history(extra_key=recovery.CREATE)
+        self.journal.write('lost-ack-create.intent.json',
+                           recovery.make_intent('create', baseline, self.plan, self.close_proof))
+        out = self.observe('create')
+        self.assertEqual(out['decision'], 'BASELINE_UNCHANGED')
+        self.assertFalse(out['retry_allowed'])
+        self.journal.records['lost-ack-create.intent.json']['condition'] = {'IfMatch': '*'}
+        with self.assertRaises(r.REFUSAL):
+            self.observe('create')
+
+    def test_changed_old_or_new_payload_and_old_latest_conflict(self):
+        self.publish('replace')
+        for ver in ('current-v1', 'marker-old', 'lost-ack-version'):
+            with self.subTest(version=ver), patch.dict(self.admin.bodies, {ver: b'different'}):
+                self.assertEqual(self.observe('replace')['decision'], 'CONFLICTING_HISTORY')
+        self.admin.rows[-2]['IsLatest'] = True
+        self.admin.rows[-1]['IsLatest'] = False
+        self.assertEqual(self.observe('replace')['decision'], 'CONFLICTING_HISTORY')
+
+    def test_change_between_passes_refuses_a_receipt(self):
+        self.publish('create')
+        after = self.cloud.history(extra_key=recovery.CREATE)
+        with patch.object(self.cloud, 'history', side_effect=[after, after[:-1]]):
+            with self.assertRaises(r.REFUSAL):
+                self.observe('create')
 
 
 if __name__ == '__main__':

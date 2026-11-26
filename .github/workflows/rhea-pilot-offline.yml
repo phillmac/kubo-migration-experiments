@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'cmd/pebble-format-v1/pilot/**'
+      - 'cmd/pebble-format-v1/inspect/**'
       - 'scripts/build_rhea_pilot_offline.py'
       - 'tests/test_build_rhea_pilot_offline.py'
       - '.github/workflows/rhea-pilot-offline.yml'
@@ -46,6 +47,16 @@ jobs:
           export GOPATH="$RUNNER_TEMP/pilot-gopath" GOMODCACHE="$RUNNER_TEMP/pilot-modules"
           export GOCACHE="$RUNNER_TEMP/pilot-prime-build-cache"
           go mod download
+      - name: Test the clone inspector against the pinned Pebble version
+        shell: bash
+        run: |
+          set -euo pipefail
+          prime="$RUNNER_TEMP/pilot-prime"
+          cp -R cmd/pebble-format-v1/inspect "$prime/inspect"
+          cd "$prime"
+          export GOENV=off GOWORK=off GOTOOLCHAIN=local GOFLAGS= GOPROXY=off GOSUMDB=off
+          export GOMODCACHE="$RUNNER_TEMP/pilot-modules" GOCACHE="$RUNNER_TEMP/pilot-prime-build-cache"
+          go test -mod=readonly -race -count=1 ./inspect
       - name: Offline verified assembly, disk subprocesses, race, vet, ABI and MANIFEST parity
         shell: bash
         run: |

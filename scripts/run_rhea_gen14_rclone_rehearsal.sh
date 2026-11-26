@@ -4,8 +4,13 @@ set -euo pipefail
 umask 077
 
 fail() { printf 'rhea-gen14-rclone-rehearsal: REFUSED: %s\n' "$1" >&2; exit 2; }
-[[ "$#" == 1 ]] || fail 'usage: bash run_rhea_gen14_rclone_rehearsal.sh {status|run}'
-case "$1" in status|run) readonly MODE="$1" ;; *) fail 'unsupported mode' ;; esac
+[[ "$#" == 1 ]] || fail 'expected one rehearsal or publication recovery mode'
+readonly MODE="$1"
+case "$MODE" in
+    status|run) readonly ENTRY='rhea_gen14_rclone_rehearsal.py' ;;
+    lose-create|lose-replace|inspect-create|inspect-replace) readonly ENTRY='rhea_gen14_publication_recovery.py' ;;
+    *) fail 'unsupported mode' ;;
+esac
 [[ "$(/usr/bin/id -u)" == 0 ]] || fail 'root required'
 [[ ! -L "${BASH_SOURCE[0]}" ]] || fail 'linked launcher'
 readonly BASE="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -37,7 +42,8 @@ check 'rhea_multi_sst_marker_iam.py' '6e0b941185ac49de1f60a36f98ca5ed3122720c9c5
 check 'rhea_multi_sst_signed_admission.py' '604970652d468d65008dc0b0b10367f6e8007de2f3fc2807b9b47f3e82e23574'
 check 'rhea_gen14_recover_iam_policy.py' 'f96d544da2bc6a2de280c5685043be1d910e2d753b5e46a10fef59e5bce68f5d'
 check 'rhea_gen14_live_iam_acceptance.py' 'eb46ed0a0bf0865ceab4176ac816970b7e1d43089821eeeef244b96570a3c4c6'
-check 'rhea_gen14_rclone_rehearsal.py' '6365341d2a272519fbf2b8b3ff43f5ada13c5506039499e7b86e59dbaf64af6f'
+check 'rhea_gen14_rclone_rehearsal.py' '20df9725b58fef510f0ceaf15bdd22e7aa6b0b843cd77c5de701bfb0087ee471'
+check 'rhea_gen14_publication_recovery.py' 'f368efc9a9eb591166bf0dc150a42f9e8faee5ea9f6bdd03ec6809022c28f325'
 exec /usr/bin/env -i PATH=/usr/bin:/bin LC_ALL=C HOME=/nonexistent \
     PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -E -s -B \
-    "$BASE/rhea_gen14_rclone_rehearsal.py" "$MODE"
+    "$BASE/$ENTRY" "$MODE"
