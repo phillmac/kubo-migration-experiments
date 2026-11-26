@@ -21,6 +21,7 @@ if __name__ == '__main__':
         raise SystemExit('fixed root installation required')
     sys.path.insert(0, str(INSTALL))
 
+import rhea_batch2_mount_lifecycle as lifecycle
 import rhea_gen14_clone_credentials as clone
 import rhea_gen14_rclone_rehearsal as rehearsal
 import rhea_gen14_reader_reopen as reopen
@@ -54,7 +55,7 @@ OLD_ARGS = COMMON + ['--cache-dir', str(CACHE), '--vfs-cache-mode', 'full', '--v
                      '0', '--stats', '5m', '--log-level', 'NOTICE']
 NEW_ARGS = COMMON + ['--read-only', '--vfs-cache-mode', 'off', '--cache-dir', NEW_CACHE,
                      '--buffer-size', '4M', '--poll-interval', '0', '--stats', '5m', '--log-level', 'NOTICE']
-MODULES = {'rhea_gen14_signed_handoff', 'rhea_gen14_clone_credentials', 'rhea_gen14_rclone_rehearsal',
+MODULES = {'rhea_batch2_mount_lifecycle', 'rhea_gen14_signed_handoff', 'rhea_gen14_clone_credentials', 'rhea_gen14_rclone_rehearsal',
            'rhea_gen14_reader_reopen', 'rhea_multi_sst_reader_preflight', 'rhea_multi_sst_signed_admission',
            'rhea_gen14_create_iam_credentials', 'rhea_gen14_live_iam_acceptance',
            'rhea_gen14_recover_iam_policy', 'rhea_gen14_iam_admin_acceptance', 'rhea_multi_sst_marker_iam'}
@@ -136,14 +137,15 @@ def clean_reader_cache():
     paths = set()
     data = CACHE / 'vfs'
     for path in meta.rglob('*'):
+        require(not path.is_symlink(), 'linked reader cache record')
         if path.is_dir():
             continue
         require(stat.S_ISREG(path.lstat().st_mode) and json.loads(path.read_bytes())['Dirty'] is False,
                 'unknown or dirty parked reader cache record')
         paths.add(path.relative_to(meta))
         count += 1
-    require(data.is_dir() and all(p.is_dir() or (stat.S_ISREG(p.lstat().st_mode)
-            and p.relative_to(data) in paths) for p in data.rglob('*')), 'untracked reader cache data')
+    require(data.is_dir() and all(not p.is_symlink() and (p.is_dir() or (stat.S_ISREG(p.lstat().st_mode)
+            and p.relative_to(data) in paths)) for p in data.rglob('*')), 'untracked reader cache data')
     return count
 
 
@@ -302,6 +304,26 @@ def entry(name, value):
     rehearsal.private_write(TRIAL / name, admission.canonical(value))
 
 
+def collect_stopped_reader():
+    signed = admission.parse(clone.read_path(TRIAL / 'intent.json'))['binding']['reader']['process']
+    fields = ('LoadState', 'ActiveState', 'SubState', 'MainPID', 'Result', 'ExecMainPID', 'ExecMainCode',
+              'ExecMainStatus', 'User', 'Group', 'DropInPaths', 'NeedDaemonReload', 'FragmentPath')
+    service = dict(line.split('=', 1) for line in output(
+        ['/usr/bin/systemctl', 'show', '--property=' + ','.join(fields), READER]).splitlines())
+    choice = lifecycle.classify_reader_stop(service, process_absent=not Path('/proc', str(signed['pid'])).exists(),
+                                            mount_absent=not mount_row(reopen.MOUNT))
+    if choice == 'collected':
+        return
+    require(service['ExecMainPID'] == str(signed['pid']) and
+            service['FragmentPath'] == '/run/systemd/transient/' + READER, 'failed unit differs from admitted reader')
+    path = TRIAL / 'reader-exit143.json'
+    if path.exists():
+        require(admission.parse(clone.read_path(path)) == service, 'reader exit evidence changed')
+    else:
+        entry(path.name, service)
+    output(['/usr/bin/systemctl', 'reset-failed', READER])
+
+
 def restore():
     if main_pid(WRITER):
         output(['/usr/bin/systemctl', 'stop', WRITER], timeout=105)
@@ -317,6 +339,7 @@ def restore():
         require(reader(False) == original, 'unexpected reader is active')
         return original
     require(not mount_row(reopen.MOUNT) and not any(Path(reopen.MOUNT).iterdir()), 'reader mountpoint occupied')
+    collect_stopped_reader()
     wait_for(lambda: output(['/usr/bin/systemctl', 'show', '--value', '-p', 'LoadState', READER]) == 'not-found')
     output(['/usr/bin/systemd-run', '--quiet', '--unit=' + READER, '--description=Rhea parked read-only clone',
             '-p', 'Restart=on-failure', '-p', 'RestartSec=30s', '-p', 'MemoryMax=2G', '-p', 'Nice=10',
@@ -341,7 +364,7 @@ def inspect_restored(cert):
         '--service-type=exec', '-p', 'PrivateNetwork=yes', '-p', 'CapabilityBoundingSet=',
         '-p', 'NoNewPrivileges=yes', '-p', 'ProtectSystem=strict', '-p', 'ProtectHome=yes',
         '-p', 'BindReadOnlyPaths=' + str(INSTALL / 'inspector') + ':' + reopen.INSPECTOR,
-        '-p', 'RuntimeMaxSec=150', reopen.INSPECTOR, '--db', str(db), '--require-read-only-mount'], timeout=170))
+        '-p', 'RuntimeMaxSec=150', '/usr/bin/env', reopen.INSPECTOR, '--db', str(db), '--require-read-only-mount'], timeout=170))
     fields = ('format_major_version', 'marked_files', 'sst_count', 'sst_bytes')
     require(report['mount_read_only'] is True and report['read_only'] is True and
             tuple(report[k] for k in fields) == tuple(cert[k] for k in ('after_format', 'marked_after', 'sst_count', 'sst_bytes')),
@@ -408,6 +431,12 @@ def finish():
                   stopped_reader=before, restored_reader=restored, clean_cache_files=claims['binding']['clean_cache_files'],
                   worker=proof, reopen=report, metadata_heads_verified_before_and_after=pinned_objects(cert),
                   metadata_bodies_verified_twice=len(cert['remote_metadata']), generation=13, certified_rewrites=9)
+    if (TRIAL / 'complete.json').exists():
+        previous = admission.parse(clone.read_path(TRIAL / 'complete.json'))
+        def stable(record):
+            return dict(record, completed_unix=None, reopen=dict(record['reopen'], elapsed_seconds=None))
+        require(stable(previous) == stable(result), 'fresh proof differs from completed receipt')
+        return previous
     entry('complete.json', result)
     return result
 
@@ -420,7 +449,10 @@ def main(mode):
         admission.read_at(parent, admission.WRITER_LOCK.name)
         fd = os.open(admission.WRITER_LOCK.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
     with os.fdopen(fd, 'rb') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if mode == 'restore-only':
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        else:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if mode == 'observe':
             return observation()
         if mode == 'run':

@@ -60,3 +60,23 @@ class HandoffTest(unittest.TestCase):
             with self.assertRaises(h.admission.Refusal):
                 h.restore()
             command.assert_not_called()
+
+    def test_collects_only_intentional_exit_from_signed_pid(self):
+        proc = {'pid': 2147483647}
+        saved = h.admission.canonical({'binding': {'reader': {'process': proc}}})
+        status = dict(LoadState='loaded', ActiveState='failed', SubState='failed', MainPID='0',
+                      Result='exit-code', ExecMainPID=str(proc['pid']), ExecMainCode='1', ExecMainStatus='143',
+                      User='', Group='', DropInPaths='', NeedDaemonReload='no', FragmentPath='/run/systemd/transient/'+h.READER)
+        with tempfile.TemporaryDirectory() as d, patch.object(h, 'TRIAL', Path(d)), \
+             patch.object(h.clone, 'read_path', return_value=saved), patch.object(h, 'mount_row', return_value=None), \
+             patch.object(h, 'entry') as written, patch.object(h, 'output') as cmd:
+            for key, bad in (('ExecMainPID', '4'), ('ExecMainStatus', '1')):
+                cmd.return_value = '\n'.join(k+'='+v for k,v in dict(status, **{key:bad}).items())
+                with self.assertRaises(RuntimeError):
+                    h.collect_stopped_reader()
+                written.assert_not_called()
+                self.assertEqual(len(cmd.call_args.args[0]), 4)
+            cmd.return_value = '\n'.join(k+'='+v for k,v in status.items())
+            h.collect_stopped_reader()
+            written.assert_called_once_with('reader-exit143.json', status)
+            cmd.assert_called_with(['/usr/bin/systemctl', 'reset-failed', h.READER])

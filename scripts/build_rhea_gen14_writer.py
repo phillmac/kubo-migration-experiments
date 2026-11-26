@@ -34,7 +34,7 @@ def build(go, cache, output):
         env['RHEA_GEN14_DRIVER'] = str(pilot.ROOT / 'tests/rhea_gen14_socket_fixture.py')
         # Test the same transport and picker against the pilot's real on-disk
         # fixture. Test-only DB selectors never enter the release executable.
-        for name in ('worker_linux.go', 'prepare.go', 'supervisor_test.go'):
+        for name in ('worker_linux.go', 'prepare.go', 'supervisor_test.go', 'marker_transition_test.go'):
             shutil.copyfile(pilot.ROOT / 'cmd/pebble-format-v1/gen14' / name, command / 'multistep' / name)
         subprocess.run([go, 'test', '-v', '-mod=readonly', '-p=2', '-count=1', '-timeout=240s',
                         '-run=^TestGeneration14', './multistep'], cwd=command, env=env, check=True)
