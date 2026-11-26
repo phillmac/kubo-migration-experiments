@@ -25,6 +25,7 @@ class Transport:
         self.store, self.journal = store, journal
         self.calls = []
         self.deny_status, self.deny_code = 403, 'AccessDenied'
+        self.put_status = 200
         self.before = lambda *args: None
         self.corrupt = lambda *args: None
         self.fail_once = False
@@ -84,7 +85,7 @@ class Transport:
             self.store.client('admin').put(bucket, key, data)
             body = b''
         self.corrupt(client.role, op, bucket, key, True)
-        return 200, headers, body
+        return (200 if op == 'move' else self.put_status), headers, body
 
 
 class ExtensionsTests(unittest.TestCase):
@@ -215,6 +216,14 @@ class ExtensionsTests(unittest.TestCase):
         body = b'<MoveObjectResult><MoveObject/><Error><Code>AccessDenied</Code></Error><MoveCount>1</MoveCount></MoveObjectResult>'
         with self.assertRaises(e.p.Refusal):
             e.xml_result(200, {}, body, 'move', 'deny', e.FIXTURES['a'], e.FIXTURES['b'])
+
+    def test_204_requires_a_successful_empty_put_and_still_checks_versions(self):
+        self.transport.put_status = 204
+        self.assertEqual(self.exercise()['result'], 'PASS')
+        for op, expected, body in (('move', 'ok', b''), ('append', 'deny', b''),
+                                   ('compose', 'ok', b' '), ('append', 'ok', b'<Error/>')):
+            with self.subTest(op=op, expected=expected, body=body), self.assertRaises(e.p.Refusal):
+                e.xml_result(204, {}, body, op, expected, e.FIXTURES['a'])
 
     def test_xml_explicit_per_object_failure_with_zero_success_is_accepted(self):
         body = b'<MoveObjectResult><Error><Code>AccessDenied</Code></Error><MoveCount>0</MoveCount></MoveObjectResult>'
@@ -371,16 +380,17 @@ class ChecksumContinuationTests(unittest.TestCase):
         self.original.write('diagnostic-result.json', copy.deepcopy(e.CHECKSUM_DIAGNOSTIC))
         self.enterContext(patch.object(e, 'ORIGINAL_FAILURE_BODY_SHA', e.p.sha(response)))
         self.enterContext(patch.object(e, 'ORIGINAL_SNAPSHOT_SHA', e.p.sha(self.original.raw(e.ORIGINAL_SNAPSHOT))))
-        self.corrected = ResumeJournal()
+        self.corrected, self.reconciled = ResumeJournal(), ResumeJournal()
         self.store.before_call = self.corrected.before_call
         self.transport = Transport(self.store, self.corrected)
         directory = self.enterContext(tempfile.TemporaryDirectory(prefix='extension-FAKE-resume-'))
         self.state = Path(directory)
         self.enterContext(patch.object(e, 'STATE', self.state))
-        def journals(*, checksum_corrected=False):
-            if checksum_corrected:
-                (self.state / 'checksum-corrected').mkdir(exist_ok=True)
-            return self.corrected if checksum_corrected else self.original
+        def journals(continuation=None):
+            if continuation:
+                (self.state / continuation).mkdir(exist_ok=True)
+            return {None: self.original, 'checksum-corrected': self.corrected,
+                    'append-reconciled': self.reconciled}[continuation]
         self.enterContext(patch.object(e, 'Journal', side_effect=journals))
         self.clients_load = self.enterContext(patch.object(e.acceptance, 'load_clients', return_value=(self.clients, f.ACCOUNT)))
         checks = e.run_checks
@@ -481,6 +491,51 @@ class ChecksumContinuationTests(unittest.TestCase):
         self.assertEqual(self.invoke()[0], 2)
         self.clients_load.assert_not_called()
         self.assertFalse(self.transport.calls)
+
+    def old_204_receipt(self):
+        self.transport.put_status = 204
+        parser = e.xml_result
+        def old_parser(status, *args):
+            if status == 204:
+                raise e.p.Refusal('custom positive control failed')
+            return parser(status, *args)
+        with patch.object(e, 'xml_result', old_parser):
+            code, result = self.invoke()
+        self.assertEqual(code, 2, result)
+        self.assertEqual(result['checks'], 30)
+        self.assertEqual(len(self.transport.calls), 1)
+        self.store.before_call = self.reconciled.before_call
+        self.transport.journal = self.reconciled
+
+    def test_reconcile_committed_append_then_execute_remaining_matrix_once(self):
+        self.old_204_receipt()
+        prior = copy.deepcopy(self.corrected.entries)
+        code, result = self.invoke('resume-append')
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result['explicit_denials'], 49)
+        self.assertEqual(self.reconciled.read('admin-append-reconciliation.json')['result'], 'APPLIED_ONCE')
+        self.assertEqual(self.invoke('status-append')[1], result)
+        self.assertEqual(self.invoke('resume-append')[1], result)
+        self.assertEqual(len(self.transport.calls), 57)
+        self.assertEqual(self.transport.calls[1][0:2], ('admin', 'compose'))
+        self.assertEqual(self.corrected.entries, prior)
+
+    def test_extra_version_blocks_append_adoption_before_any_more_requests(self):
+        self.old_204_receipt()
+        self.store.client('admin').put(e.BUCKET, e.FIXTURES['admin-append'], e.BASE + e.APPEND)
+        code, result = self.invoke('resume-append')
+        self.assertEqual(code, 2, result)
+        self.assertIn('version/body differs', result['reason'])
+        self.assertEqual(len(self.transport.calls), 1)
+
+    def test_receipt_mismatch_blocks_append_adoption_locally(self):
+        self.old_204_receipt()
+        self.corrected.entries['0030.receipt.json']['intent_sha256'] = '0' * 64
+        code, result = self.invoke('resume-append')
+        self.assertEqual(code, 2, result)
+        self.assertEqual(result['stage'], 'validate_append_receipt')
+        self.assertEqual(self.clients_load.call_count, 1)
+        self.assertEqual(len(self.transport.calls), 1)
 
 
 if __name__ == '__main__':

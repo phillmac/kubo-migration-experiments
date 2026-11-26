@@ -7,6 +7,7 @@ explicit-endpoint client's SigV4 signer and single-attempt HTTPS transport.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from datetime import datetime, timezone
 import fcntl
 import json
@@ -53,9 +54,10 @@ CHECKSUM_DIAGNOSTIC = dict(
 
 
 class Journal(p.Journal):
-    def __init__(self, *, checksum_corrected=False):
-        p.require(type(checksum_corrected) is bool, 'invalid extension journal selection')
-        self.path = STATE / 'checksum-corrected' if checksum_corrected else STATE
+    def __init__(self, continuation=None):
+        p.require(continuation in (None, 'checksum-corrected', 'append-reconciled'),
+                  'invalid extension journal selection')
+        self.path = STATE / continuation if continuation else STATE
 
     def __enter__(self):
         self.fd, self.lock = p.directory(self.path, create=True, private=True), None
@@ -162,7 +164,8 @@ def xml_result(status, headers, body, operation, expected, source, destination=N
                       and not list(root.iter('MoveObject')) and root.findtext('MoveCount') in (None, '0'))
         p.require(explicit or per_object, 'custom operation was not explicitly denied')
     else:
-        p.require(expected == 'ok' and status == 200 and not codes and not errors,
+        empty_put = status == 204 and operation in ('append', 'compose') and body == b''
+        p.require(expected == 'ok' and (status == 200 or empty_put) and not codes and not errors,
                   'custom positive control failed')
         if operation == 'move':
             p.require(root is not None and root.tag == 'MoveObjectResult', 'unexpected MOVE result')
@@ -337,7 +340,8 @@ def moved_versions(before, after, bucket, source, destination):
               'MOVE did not move exactly the recorded versions')
 
 
-def run_checks(clients, account, journal, trace=None, transport=raw_request, *, reconciled_snapshot=None):
+def run_checks(clients, account, journal, trace=None, transport=raw_request, *,
+               reconciled_snapshot=None, adopt_admin_append=False):
     trace = trace or Trace()
     c = Checks(clients, account, journal, trace, transport)
     for role in ('writer', 'publisher'):
@@ -352,7 +356,14 @@ def run_checks(clients, account, journal, trace=None, transport=raw_request, *, 
             return None, dict(identity_verified=True)
         c.record('identify-' + role, role + '_sts', 'get_caller_identity', {}, identity)
     before = c.snapshot('initial', refresh=True)
-    if reconciled_snapshot is None:
+    if adopt_admin_append:
+        trace.stage = 'reconcile-admin-append'
+        p.require(reconciled_snapshot is not None, 'missing pre-append history')
+        added_version(reconciled_snapshot, before, BUCKET, FIXTURES['admin-append'], BASE + APPEND)
+        journal.write('admin-append-reconciliation.json', dict(
+            result='APPLIED_ONCE', case='admin-append-positive',
+            before_sha256=p.sha(p.canonical(reconciled_snapshot)), after_sha256=p.sha(p.canonical(before))))
+    elif reconciled_snapshot is None:
         p.require(all(not row['key'].startswith(FIXTURE_PREFIX) and row['key'] != OUTSIDE
                       for rows in before.values() for row in rows), 'extension fixtures already exist; no replay')
     else:
@@ -376,9 +387,10 @@ def run_checks(clients, account, journal, trace=None, transport=raw_request, *, 
     # Positive controls prove custom requests are syntactically valid under
     # admin and writer before a 403 can be counted as a policy denial.
     for role in ('admin', 'writer'):
-        key = FIXTURES[role + '-append']
-        old, new = c.custom(role + '-append-positive', role, 'append', key, data=APPEND)
-        added_version(old, new, BUCKET, key, BASE + APPEND)
+        if role != 'admin' or not adopt_admin_append:
+            key = FIXTURES[role + '-append']
+            old, new = c.custom(role + '-append-positive', role, 'append', key, data=APPEND)
+            added_version(old, new, BUCKET, key, BASE + APPEND)
         key = FIXTURES[role + '-compose']
         old, new = c.custom(role + '-compose-positive', role, 'compose', key,
                             components=(FIXTURES['a'], FIXTURES['b']))
@@ -488,37 +500,73 @@ def checksum_resume_evidence(original):
     return before, source_run, provenance
 
 
-def checksum_continuation(mode, trace):
-    """One explicitly selected continuation; never reset or rewrite the first run."""
-    corrected = STATE / 'checksum-corrected'
-    if mode == 'status-checksum':
-        if not corrected.exists():
-            return dict(result='NOT_STARTED', continuation='checksum-corrected', credentials='NOT_ACCESSED')
-        with Journal(checksum_corrected=True) as journal:
+def confirmed_append_evidence(checksum, before, source_run, provenance):
+    """Bind the observed 204 to the intended append before inspecting the live versions."""
+    binding = checksum.read('run.intent.json')
+    expected = dict(source_run, domain='rhea-wasabi-extensions-checksum-corrected-v1',
+                    corrected_header='X-Amz-Content-Sha256', source_evidence=provenance)
+    p.require(binding == expected, 'checksum run binding differs')
+    result = checksum.read('result.json')
+    response = result.get('extension_response', {})
+    p.require(result.get('result') == 'REFUSED' and result.get('continuation') == 'checksum-corrected'
+              and result.get('source_evidence') == provenance and result.get('stage') == 'admin-append-positive'
+              and result.get('reason') == 'custom positive control failed' and result.get('checks') == 30
+              and result.get('explicit_denials') == 0 and type(response) is dict and response.get('http_status') == 204
+              and response.get('response_bytes') == 0 and response.get('response_sha256') == p.sha(b'')
+              and response.get('error_code') is None, 'checksum run did not stop on the empty 204 append')
+    intent = checksum.read('0030.intent.json')
+    receipt = checksum.read('0030.receipt.json')
+    p.require(intent.get('case') == 'admin-append-positive' and intent.get('role') == 'admin'
+              and intent.get('sequence') == 30 and intent.get('operation') == 'append'
+              and intent.get('parameters') == dict(bucket=BUCKET, key=FIXTURES['admin-append'],
+                                                    data=p.sha(APPEND), expected='ok')
+              and receipt.get('result') == 'FAIL' and receipt.get('intent_sha256') == p.admin.iam.digest(intent)
+              and receipt.get('evidence') == response and not checksum.exists('0031.intent.json')
+              and checksum.read('0030-admin-append-positive-before-snapshot.json') == before,
+              'checksum append intent, receipt or baseline differs')
+    return dict(provenance, checksum_result_sha256=p.sha(checksum.raw('result.json')),
+                checksum_run_sha256=p.admin.iam.digest(binding), append_intent_sha256=p.admin.iam.digest(intent),
+                append_receipt_sha256=p.admin.iam.digest(receipt))
+
+
+def continue_checks(mode, trace):
+    """Continue in a new journal only from a reconciled predecessor."""
+    adopt_append = mode in ('resume-append', 'status-append')
+    name = 'append-reconciled' if adopt_append else 'checksum-corrected'
+    if mode.startswith('status-'):
+        if not (STATE / name).exists():
+            return dict(result='NOT_STARTED', continuation=name, credentials='NOT_ACCESSED')
+        with Journal(name) as journal:
             if journal.exists('result.json'):
                 return journal.read('result.json')
             return dict(result='PENDING' if journal.exists('run.intent.json') else 'NOT_STARTED',
-                        continuation='checksum-corrected', credentials='NOT_ACCESSED')
-    p.require(mode == 'resume-checksum' and STATE.is_dir(), 'original extension journal is missing')
-    with Journal() as original:
+                        continuation=name, credentials='NOT_ACCESSED')
+    p.require(STATE.is_dir(), 'original extension journal is missing')
+    with Journal() as original, ExitStack() as parents:
         trace.stage = 'validate_checksum_resume_evidence'
         before, source_run, provenance = checksum_resume_evidence(original)
-        with Journal(checksum_corrected=True) as journal:
+        if adopt_append:
+            trace.stage = 'validate_append_receipt'
+            p.require((STATE / 'checksum-corrected').is_dir(), 'checksum journal is missing')
+            checksum = parents.enter_context(Journal('checksum-corrected'))
+            provenance = confirmed_append_evidence(checksum, before, source_run, provenance)
+        with Journal(name) as journal:
             if journal.exists('result.json'):
                 return journal.read('result.json')
-            p.require(not journal.exists('run.intent.json'), 'checksum continuation already started; no retries')
+            p.require(not journal.exists('run.intent.json'), 'continuation already started; no retries')
             clients, account = acceptance.load_clients(trace)
             try:
                 p.require(source_run.get('account') == account
                           and source_run.get('credential_plan_sha256') == clients['credential_plan_sha256'],
                           'checksum continuation credential binding differs')
                 journal.write('run.intent.json', dict(
-                    schema=1, domain='rhea-wasabi-extensions-checksum-corrected-v1',
+                    schema=1, domain='rhea-wasabi-extensions-' + name + '-v1',
                     account=account, endpoint=p.S3_ENDPOINT, buckets=list(BUCKETS),
                     credential_plan_sha256=clients['credential_plan_sha256'], policy_sha256=p.POLICY_SHAS,
                     corrected_header='X-Amz-Content-Sha256', source_evidence=provenance))
                 try:
-                    result = run_checks(clients, account, journal, trace, reconciled_snapshot=before)
+                    result = run_checks(clients, account, journal, trace, reconciled_snapshot=before,
+                                        adopt_admin_append=adopt_append)
                 except Exception as exc:
                     result = dict(result='REFUSED', stage=trace.stage, checks=trace.checks,
                                   explicit_denials=trace.denials, **acceptance.error_details(exc))
@@ -526,7 +574,7 @@ def checksum_continuation(mode, trace):
                         result['extension_response'] = exc.extension_response
                     if type(exc) is p.Refusal:
                         result['reason'] = str(exc)
-                result.update(continuation='checksum-corrected', source_evidence=provenance)
+                result.update(continuation=name, source_evidence=provenance)
                 journal.write('result.json', result)
                 return result
             finally:
@@ -544,8 +592,8 @@ def run(mode, trace=None):
     logging.disable(logging.CRITICAL)
     os.environ.clear()
     os.environ.update(PATH='/usr/bin:/bin', LC_ALL='C', HOME='/nonexistent', AWS_EC2_METADATA_DISABLED='true')
-    if mode in ('resume-checksum', 'status-checksum'):
-        return checksum_continuation(mode, trace)
+    if mode in ('resume-checksum', 'status-checksum', 'resume-append', 'status-append'):
+        return continue_checks(mode, trace)
     if mode == 'status' and not STATE.exists():
         return dict(result='NOT_STARTED', credentials='NOT_ACCESSED')
     with Journal() as journal:
@@ -580,7 +628,8 @@ def run(mode, trace=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('status', 'run', 'resume-checksum', 'status-checksum'))
+    parser.add_argument('mode', choices=('status', 'run', 'resume-checksum', 'status-checksum',
+                                         'resume-append', 'status-append'))
     args, trace = parser.parse_args(argv), Trace()
     try:
         result = run(args.mode, trace)
