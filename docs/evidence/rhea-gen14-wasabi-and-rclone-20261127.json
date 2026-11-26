@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "source_commit": "cca3fe11313e66860856b09cc972c79a426870ad",
+  "recorded_at_utc": "2026-11-26T20:45:15.940253+00:00",
+  "wasabi_extensions": {
+    "result": "PASS",
+    "checks": 354,
+    "operations": [
+      "MOVE",
+      "compose",
+      "append"
+    ],
+    "explicit_denials": 49,
+    "scope": "FIXED_DISPOSABLE_BUCKETS_ONLY",
+    "protected_history_verified": true,
+    "source_and_destination_move_denials_verified": true,
+    "coverage_exclusions": [
+      "MOVE with X-Wasabi-Prefix:true",
+      "cross-bucket compose (unsupported by Wasabi)",
+      "production or full-clone resources"
+    ],
+    "result_sha256": "029f184aa18bd973cf15504d1e57c15f7d47cdacab5eae0abac94d36a51a2925",
+    "reconciled_append": {
+      "after_sha256": "f1798f25bf2fb60d9acfdd54122100b1c3535b3a3d3a8cf53197cabbadce9167",
+      "before_sha256": "7630439dc515d0269a59959c2924f346c844fab70c88605e8db1e55eeee7ca2a",
+      "case": "admin-append-positive",
+      "result": "APPLIED_ONCE"
+    },
+    "reconciliation_sha256": "6e3a49650b0dfc6e3a1cf65edabdf87bab612178c71556baa00bb2a2ebd033c1"
+  },
+  "rclone_rehearsal": {
+    "result": "PASS",
+    "scope": "DISPOSABLE_BUCKET_ONLY",
+    "completed_at_utc": "2026-11-26T20:39:43.107684+00:00",
+    "data_readback_verified": true,
+    "denied_marker": "CURRENT",
+    "denied_upload_attempts": 2,
+    "writer_stopped": true,
+    "writer_mount_removed": true,
+    "writer_cache_quarantined": true,
+    "protected_history_preserved": true,
+    "conditional_publication_verified": true,
+    "protected_versions_after_publication": 12,
+    "protected_history_after_publication_sha256": "87db1ae98d77ae3f306dcf5f7130f6c1dd42d927610ebdb8792c1a917303d423",
+    "quarantine_proof": {
+      "open_references": 0,
+      "restart_paths_blocked": true,
+      "dirty_payload_preserved": true,
+      "cache_manifest_sha256": "256bb4a09757d3652c1bab1263f0b732fb37506e311153240e25868942e29064"
+    },
+    "quarantine_receipt_sha256": "c6b4884e861409d9946e9626e193ef7e49cf8d5b53224e1b9f47ef2a247f30c9",
+    "result_sha256": "11d30e14aaa732188393237d0ea034acb3be15ee70afb5fe60e8df4366660b62"
+  },
+  "clone_writer": {
+    "result": "VERIFIED",
+    "policy_sha256": "8828092941ce0c46eefd9169d0b887a4e6cbb54b9a9e865464c5d4a1e3002dd0",
+    "result_sha256": "cd4243f5915dc39ac07b955bc44af7d4cfc5ba58bb6169f8fe8f995b3e9cb295",
+    "read_only_acceptance": {
+      "result": "PASS",
+      "observed_at_utc": "2026-11-26T20:42:38.047341+00:00",
+      "role": "writer",
+      "credential_receipt_verified": true,
+      "signer_identity_verified": true,
+      "generation": 13,
+      "current_manifest_marker_version_verified": true,
+      "marker_etag_and_length_verified": true,
+      "s3_mutations": 0
+    }
+  },
+  "checkpoint": {
+    "generation": 13,
+    "format": "013",
+    "ssts_referenced": 93697,
+    "ssts_marked": 93686,
+    "certified_physical_rewrites": 9,
+    "pending": null,
+    "certificate_sha256": "2d26a443de2cb899b3909cc53a815b670f61570022d69a576c73b0ed395b2774",
+    "legacy_state_sha256": "c1563e322c496ca479c26501ef3f8ae2b71091565ee8fa227e24b4292f2cd90c"
+  },
+  "host_observation": {
+    "sha256": "a158f20a63b0f1c1cb1ac2f52aaa0e247e7d6c6ce494e217d9c6fd9bbd6b54dd",
+    "reader_active": true,
+    "reader_read_only_arg": false,
+    "reader_mount_verified": true,
+    "production_mount_verified": true,
+    "production_rc_listener_owner_verified": true,
+    "production_disk_cache": {
+      "bytesUsed": 0,
+      "uploadsQueued": 0,
+      "uploadsInProgress": 0,
+      "erroredFiles": 0,
+      "outOfSpace": false
+    },
+    "production_queue_length": 0,
+    "clone_writer_service": "inactive",
+    "production_wasabi_kubo": "inactive",
+    "pin_walker": "inactive",
+    "reader_fuse_mount_mode": "rw",
+    "reader_fuse_mode_source": "findmnt on Rhea, corroborating the reader flags and mountinfo captured in the observation",
+    "writer_admission": false
+  },
+  "trial_started": false,
+  "clone_publisher_credential_present": false,
+  "recorded_for": "Rhea generation-14 disposable acceptance and clone writer readiness"
+}
