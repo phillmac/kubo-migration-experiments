@@ -77,5 +77,35 @@
       "rhea-broken-pin-walk-20261026": "inactive"
     }
   },
-  "trial_started": false
+  "trial_started": false,
+  "source_commit": "5e4210ff47a9b3f391ef7b5172ef2a804496b673",
+  "clone_writer_handshake": {
+    "allow": false,
+    "binary_sha256": "fac0d0971fa93ccb33db4e02937e777a8395b0ee95644201adedb1d660451347",
+    "cache_file_count": 2,
+    "certificate_sha256": "2d26a443de2cb899b3909cc53a815b670f61570022d69a576c73b0ed395b2774",
+    "child_exit": 2,
+    "hello": {
+      "kind": "ready",
+      "seq": 1
+    },
+    "kernel_mount": "rw",
+    "policy_verified": "VERIFIED",
+    "request_sent": false,
+    "result": "PASS",
+    "role": "writer",
+    "scope": "clone writer handshake only",
+    "temporary_unit_stopped": true,
+    "worker_directory_mode": "0555",
+    "worker_file_mode": "0444",
+    "worker_uid": 65534,
+    "permissions": "The temporary mount used kernel default_permissions with root-owned 0444 files and 0555 directories. The unprivileged child had no write access. The parent sent a denial in response to ready.",
+    "current_sha256_matched_checkpoint": true
+  },
+  "missing_mount_launch": {
+    "child_exit": 2,
+    "ready_bytes": 0,
+    "stdout_bytes": 0,
+    "reason": "invalid scoped clone directory"
+  }
 }
