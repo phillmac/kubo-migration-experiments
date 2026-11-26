@@ -59,6 +59,13 @@ func TestReaderRejectsForeignWritableOrNestedMounts(t *testing.T) {
 	if err := verifyCloneMount(row, 77); err != nil {
 		t.Fatal(err)
 	}
+	covered := "64 4 0:65 /private " + labMount + " rw - tmpfs tmpfs rw"
+	if err := verifyCloneMount(covered+"\n"+row, 77); err != nil {
+		t.Fatalf("rejected visible read-only clone above a private staging directory: %v", err)
+	}
+	if err := verifyCloneMount(covered+"\n"+row, 64); err == nil {
+		t.Fatal("accepted a covered clone with a different visible mount ID")
+	}
 	for _, altered := range []string{
 		strings.Replace(row, " ro,nodev", " rw,nodev", 1),
 		strings.Replace(row, "39037c6f01", "different", 1),

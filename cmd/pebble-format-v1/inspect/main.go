@@ -56,7 +56,7 @@ type Report struct {
  ElapsedSeconds float64 `json:"elapsed_seconds"`
 }
 
-func validate(path string) error {
+func validatePath(path string) error {
  if path != labDB { return errors.New("refusing a path outside the exact disposable reader mount") }
  for _, p := range []string{labMount,labDB} {
   fi,err:=os.Lstat(p)
@@ -65,6 +65,10 @@ func validate(path string) error {
   real,err:=filepath.EvalSymlinks(p)
   if err!=nil || real!=p {return errors.New("symlinks not permitted")}
  }
+ return nil
+}
+
+func validateLegacyMount() error {
  b,err:=os.ReadFile("/proc/self/mountinfo")
  if err!=nil{return err}
  var matched bool
@@ -87,9 +91,12 @@ func main() {
  requireRO:=flag.Bool("require-read-only-mount",false,"require a kernel read-only mount of the certified clone")
  flag.Parse()
  if flag.NArg()!=0 || *dbPath=="" {fmt.Fprintln(os.Stderr,"usage: inspect --db "+labDB);os.Exit(2)}
- if err:=validate(*dbPath);err!=nil {fmt.Fprintln(os.Stderr,"safety gate:",err);os.Exit(2)}
+ if err:=validatePath(*dbPath);err!=nil {fmt.Fprintln(os.Stderr,"safety gate:",err);os.Exit(2)}
  fs,mountRO,err:=inspectionFS(*dbPath,*requireRO)
  if err!=nil {fmt.Fprintln(os.Stderr,"reader mount:",err);os.Exit(2)}
+ if !mountRO {
+  if err:=validateLegacyMount();err!=nil {fmt.Fprintln(os.Stderr,"safety gate:",err);os.Exit(2)}
+ }
  start:=time.Now()
  db,err:=pebble.Open(*dbPath,&pebble.Options{
   FS:fs,ErrorIfNotExists:true,ReadOnly:true,FormatMajorVersion:pebble.FormatMostCompatible,
