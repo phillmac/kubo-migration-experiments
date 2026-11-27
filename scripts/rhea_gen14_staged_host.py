@@ -22,9 +22,9 @@ import rhea_gen14_writer_supervisor as supervisor
 
 c = supervisor.c
 require = c.require
-INSTALL = Path('/root/.local/share/rhea-gen14-live-checkpoint-20261127')
-STATE = iam.TRIAL / 'checkpoint-000014'
-DATA = Path('/data/rhea-gen14-checkpoint-000014-20261127')
+INSTALL = Path('/root/.local/share/rhea-gen14-live-checkpoint-warm-20261127')
+STATE = iam.TRIAL / 'checkpoint-000014-warm'
+DATA = Path('/data/rhea-gen14-checkpoint-000014-warm-20261127')
 UNIT = 'rhea-gen14-full-clone-staged-writer-20261127.service'
 PROBE = 'rhea-gen14-full-clone-staged-inspect-20261127.service'
 DB = h.DB
@@ -205,11 +205,11 @@ class WriterMount:
         require(method in ('vfs/list','vfs/queue','vfs/stats'), 'read-only RC route required')
         sock = socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
         with sock:
-            sock.settimeout(5)
+            sock.settimeout(12)
             sock.connect(str(self.sock))
             require(struct.unpack('3i',sock.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12)) == (self.pid,0,0),
                     'RC peer differs from scoped writer')
-            connection = http.client.HTTPConnection('localhost',timeout=5)
+            connection = http.client.HTTPConnection('localhost',timeout=12)
             connection.sock = sock
             connection.request('POST','/'+method,body=json.dumps({'fs':self.fs} if self.fs else {}),
                          headers={'Content-Type':'application/json'})

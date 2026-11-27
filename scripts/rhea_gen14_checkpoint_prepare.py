@@ -11,7 +11,7 @@ import rhea_gen14_staged_host as host
 
 h, iam, c, a = host.h, host.iam, host.c, host.h.admission
 require, STATE, INSTALL = c.require, host.STATE, host.INSTALL
-SCOPE = 'rhea-gen14-create-only-two-sst-checkpoint-v1'
+SCOPE = 'rhea-gen14-create-only-two-sst-checkpoint-warm-v1'
 HANDOFF = '7ef9fe34aafd20beaadbf3728b10d93e9b949a17e5b2caef6f8daa431466c7f8'
 DB = Path(h.reopen.MOUNT) / 'pebbleds'
 
@@ -60,13 +60,52 @@ def save_metadata(path, values):
     require(proof.physical_metadata(path) == values, 'retained metadata bytes differ')
 
 
+def recovered_reader(cert, prior):
+    # The pinned Go implementation requires a durable pending.json acknowledgement
+    # before its first writable Open. Re-admission is limited to that boundary.
+    legacy = iam.TRIAL / 'checkpoint-000014'
+    first_install = Path('/root/.local/share/rhea-gen14-live-checkpoint-20261127')
+    raw = a.protected_read(first_install/'admission.json')
+    sig = a.protected_read(first_install/'admission.sig')
+    require(a.sha(raw)=='d1769f15898998a6a4e942b85286f12e2b22a4245de3e09e797374b314b024ff', 'first admission differs')
+    a.verify_detached(raw,sig,a.protected_read(h.TRANSACTION_INSTALL/'handoff.pub'),key_sha256=h.HANDOFF_KEY,domain=a.DOMAIN)
+    admitted = a.parse(raw)
+    binding = admitted['binding']
+    launch = host.read(legacy/'writer-launch.json')
+    nonce = host.read(legacy/'nonces'/(admitted['nonce']+'.json'))
+    require(nonce==dict(schema=1,claims_sha256=a.sha(raw),signature_sha256=a.sha(sig),nonce=admitted['nonce'])
+            and host.read(legacy/'intent.json')==binding and launch['admission_sha256']==a.sha(raw)
+            and binding['reader']==prior['restored_reader'] and binding['production']==prior['production']
+            and launch['intent']['go_binary_sha256']==binding['worker_sha256']
+            and binding['request']['maximum_units']==2, 'original admitted launch differs')
+    require({p.name for p in (legacy/'go').iterdir()}=={'lock'} and
+            all(not (legacy/name).exists() for name in ('writer-closed.json','snapshot.json','before-publication.json',
+                'final-remote.json','checkpoint-000014.json','completed.json')) and not list(legacy.glob('put-*'))
+            and not (iam.TRIAL/'publisher-plan.json').exists(), 'first attempt passed the no-replay boundary')
+    work=Path('/data/rhea-gen14-checkpoint-000014-20261127/writer')
+    require(host.read(legacy/'quarantine.json')==dict(cache=str(work/'quarantined-cache'),no_rc_socket=True,stopped=True)
+            and (work/'cache').is_file() and not (work/'runtime/rc.sock').exists()
+            and not any(f.is_file() or f.is_symlink() for f in (work/'quarantined-cache').rglob('*')),
+            'first cache contains data or is not quarantined')
+    old=proof.physical_metadata(legacy/'previous-metadata')
+    require(proof.writer_metadata(cert,old)==old==proof.physical_metadata(work/'metadata'),
+            'first attempt modified metadata')
+    reader=h.reader(True)
+    require(reader['process']!=binding['reader']['process'] and reader['process']['boot_id']==binding['reader']['process']['boot_id'],
+            'expected a freshly restored reader on the admitted boot')
+    return reader, binding
+
+
 def baseline():
     cert = iam.anchored_checkpoint()
     handoff = iam.read_path(h.TRIAL/'complete.json')
     require(c.raw_sha(handoff) == HANDOFF and c.raw_sha(iam.read_path(iam.TRIAL/'prepared-writer-request.json')) == h.PREPARED,
             'signed handoff or prepared anchor changed')
     prior = c.parse(handoff)
-    require(h.reader(True) == prior['restored_reader'] and h.production() == prior['production']
+    current, aborted = recovered_reader(cert,prior)
+    prior = dict(prior,restored_reader=current,aborted_admission_sha256='d1769f15898998a6a4e942b85286f12e2b22a4245de3e09e797374b314b024ff',
+                 aborted_baseline=aborted['physical_baseline_sha256'])
+    require(h.production() == prior['production']
             and not any(h.main_pid(u) for u in (host.UNIT,host.PROBE,h.WRITER)) and not h.mount_row(h.DB)
             and not h.preflight._open_users(prior['restored_reader']['process']['pid']), 'clone or production state changed')
     return cert, prior
@@ -82,6 +121,19 @@ def verify_inspection(report, cert):
     require(report['action']=='inspect' and not report.get('error') and report['compactions']==[]
             and not any(proof.v._delta(report['sst_diff'])) and report['io']['sst_write_bytes']==0
             and report['io']['metadata_write_bytes']==0, 'staged inspection wrote or compacted')
+
+
+def native_inspection(mount,cert,old):
+    # Populate the real writer VFS directory cache before supervised RC polling.
+    # The first 93k-object listing holds the directory mutex in rclone 1.68.
+    with mount.launch('inspect-staged') as (proc, sock):
+        raw, _ = proc.communicate(timeout=240)
+        require(proc.returncode==0, 'staged inspector failed; inspect '+str(mount.work/'inspect-staged.stderr'))
+    report=c.parse(raw)
+    verify_inspection(report,cert)
+    rows,health=mount.sample()
+    require(not rows and proof.physical_metadata(mount.meta)==old,'native inspection changed clone')
+    return dict(report=report,health=health)
 
 
 def prepare():
@@ -100,6 +152,9 @@ def prepare():
     save_metadata(STATE/'previous-metadata',old)
     with contextlib.closing(host.r.s3_client(*iam.p.source_credentials())) as client:
         opening = proof.anchored_inventory(client,cert)
+    former=host.read(iam.TRIAL/'checkpoint-000014/opening.json')
+    require(opening['baseline_sha256']==prior['aborted_baseline']==former['baseline_sha256']
+            and opening['marker_history']==former['marker_history'], 'cloud changed since the refused first launch')
     if (STATE/'opening.json').exists():
         kept = host.read(STATE/'opening.json')
         require({k:v for k,v in kept.items() if k!='enumeration_metrics'} ==
@@ -113,16 +168,10 @@ def prepare():
         mount.prepare(old)
         try:
             identity = mount.start(credential)
-            with mount.launch('inspect-staged') as (proc, sock):
-                raw, _ = proc.communicate(timeout=240)
-                require(proc.returncode==0, 'staged inspector failed; inspect '+str(mount.work/'inspect-staged.stderr'))
-            report = c.parse(raw)
-            verify_inspection(report,cert)
-            rows, health = mount.sample()
-            require(not rows and proof.physical_metadata(mount.meta)==old, 'native inspection changed clone')
+            check = native_inspection(mount,cert,old)
         finally:
             quarantine = mount.quarantine()
-        host.put(native,dict(identity=identity,report=report,health=health,quarantine=quarantine,worker_sha256=worker_sha))
+        host.put(native,dict(identity=identity,**check,quarantine=quarantine,worker_sha256=worker_sha))
     verify_inspection(host.read(native)['report'],cert)
     require(baseline()==(cert,prior), 'state changed across preparation')
     return dict(phase='ready', baseline=opening['baseline_sha256'], latest=opening['latest'], tombstones=opening['deleted'],
@@ -142,6 +191,7 @@ def observation():
                 linked_preparation_sha256=c.digest(link), native_probe_sha256=c.digest(probe), signed_handoff_sha256=HANDOFF,
                 physical_baseline_sha256=opening['baseline_sha256'], marker_history_sha256=c.digest(opening['marker_history']),
                 reader=prior['restored_reader'], production=prior['production'], target=iam.BUCKET+'/'+iam.PREFIX,
+                aborted_admission_sha256=prior['aborted_admission_sha256'],
                 request=host.supervisor.verified_request(link['proposal'],iam.read_path(iam.LEGACY/'checkpoints/000013-step.json')))
 
 

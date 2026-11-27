@@ -8,7 +8,7 @@ import sys
 import time
 
 if __name__ == '__main__':
-    fixed = Path('/root/.local/share/rhea-gen14-live-checkpoint-20261127/scripts')
+    fixed = Path('/root/.local/share/rhea-gen14-live-checkpoint-warm-20261127/scripts')
     if Path(__file__).parent != fixed or os.geteuid() != 0:
         raise SystemExit('fixed root installation required')
     sys.path.insert(0, str(fixed))
@@ -111,6 +111,8 @@ def run_writer():
         host.put(STATE/'reader-stopped.json',stopped_reader(binding['reader']))
         mount.prepare(old)
         ident = mount.start(credential)
+        warm = prep.native_inspection(mount,cert,old)
+        host.put(STATE/'warm-reader.json',warm)
         last_guard = 0
         def monitor():
             nonlocal last_guard

@@ -1,9 +1,10 @@
+import contextlib
 import hashlib
 from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 import rhea_gen14_live_checkpoint as live
@@ -91,3 +92,27 @@ class ExactPutTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.send()
         self.assertEqual(self.s3.puts,0)
+
+
+class NativeWarmupTests(unittest.TestCase):
+    def test_inspects_and_checks_queue_before_writer_launch(self):
+        cert=dict(after_format='013',marked_after=3,sst_count=7,sst_bytes=47,sst_inventory_sha256='a'*64)
+        report=dict(action='inspect',compactions=[],io=dict(sst_write_bytes=0,metadata_write_bytes=0),
+                    sst_diff=dict(created=[],retired=[],created_count=0,created_bytes=0,retired_count=0,retired_bytes=0))
+        for side in ('before','after'):
+            for key,value in {side+'_format':'013','marked_'+side:3,'sst_files_'+side:7,
+                              'sst_bytes_'+side:47,'sst_inventory_sha256_'+side:'a'*64}.items():
+                report[key]=value
+        mount=Mock()
+        mount.work=Path('/test')
+        proc=Mock(returncode=0)
+        proc.communicate.return_value=(c.canonical(report),None)
+        mount.launch.side_effect=lambda mode:contextlib.nullcontext((proc,None))
+        mount.sample.return_value=([],{'queue_files':0})
+        with patch.object(p,'physical_metadata',return_value={'LOCK':b''}):
+            result=live.prep.native_inspection(mount,cert,{'LOCK':b''})
+            self.assertEqual(result['report'],report)
+            mount.launch.assert_called_once_with('inspect-staged')
+            mount.sample.return_value=([{'name':'unknown'}],{'queue_files':1})
+            with self.assertRaises(RuntimeError):
+                live.prep.native_inspection(mount,cert,{'LOCK':b''})
