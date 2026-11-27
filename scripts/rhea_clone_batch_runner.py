@@ -2,6 +2,7 @@
 import argparse
 import base64
 import contextlib
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import json
 import logging
 import os
@@ -90,6 +91,8 @@ def check_claims(raw,signature,binding,*,historical=False):
             and binding['scope']==bulk.SCOPE and binding['release_sha256']==release()[0]
             and binding['target']==iam.BUCKET+'/'+iam.PREFIX and binding['limits']==bulk.limits_for(binding['generation'])
             and binding['request']['maximum_units']==binding['limits']['maximum_units'], 'admission binding differs')
+    if binding['generation'] >= 18:
+        sst_worker_count(binding['sst_workers'])
     now=claims['issued'] if historical else int(time.time())
     require(all(type(claims[k]) is int for k in ('issued','expires')) and claims['issued']<=now<claims['expires']
             <=claims['issued']+a.MAX_LIFETIME and isinstance(claims['nonce'],str) and a.HEX.fullmatch(claims['nonce'])
@@ -107,6 +110,41 @@ def admin_reader():
 
 def fixed_writer():
     return host.role_credentials('writer',iam.anchored_checkpoint())
+
+
+def sst_worker_count(value):
+    require(type(value) is int and 1 <= value <= 4, 'select between one and four SST transfers')
+    return value
+
+
+def transfer_ssts(hashes, clients, upload):
+    """Give each client pair one key at a time. Drain active transfers before propagating any error."""
+    sst_worker_count(len(clients))
+    require(hashes and all(proof.p.base.SST_NAME.fullmatch(name) for name in hashes),
+            'parallel transfers require exact SST names')
+    if len(clients) == 1:
+        for name, pin in hashes.items():
+            upload(clients[0], name, pin)
+        return
+
+    remaining = iter(hashes.items())
+    with ThreadPoolExecutor(max_workers=len(clients), thread_name_prefix='clone-sst') as pool:
+        active = {}
+
+        def submit_next(pair):
+            item = next(remaining, None)
+            if item is not None:
+                name, pin = item
+                active[pool.submit(upload, pair, name, pin)] = pair
+
+        for pair in clients:
+            submit_next(pair)
+        while active:
+            completed, _ = wait(active, return_when=FIRST_COMPLETED)
+            for future in completed:
+                future.result()
+            for future in completed:
+                submit_next(active.pop(future))
 
 
 def publish_after_policy_change(put, verify_empty, record, *, resume=False, wait=time.sleep):
@@ -163,12 +201,16 @@ class Batch:
         with admin_reader() as client:
             return proof.anchored_inventory(client,self.cert,self.parent['sha256'])
 
-    def prepare(self):
+    def prepare(self, sst_workers=1):
+        sst_worker_count(sst_workers)
+        require(self.generation >= 18 or sst_workers == 1, 'earlier generation requires serial transfers')
         require(not (self.state/'intent.json').exists(),'existing admitted batch requires resume')
         host.mkdir(self.state)
         host.mkdir(self.data)
         reader=h.reader(True)
         production=guard(reader)
+        if self.generation >= 18:
+            self.save('sst-transfer-plan.json', dict(workers=sst_workers, parent_sha256=self.parent['sha256']))
         old=bulk.logical_metadata(prep.DB,self.cert)
         prep.save_metadata(self.state/'previous-metadata',old)
         proposal=host.inspector(INSTALL/'worker','plan')
@@ -200,11 +242,16 @@ class Batch:
         release_sha,worker=release()
         plan=self.read('plan.json')
         opening=self.read('opening.json')
-        return dict(scope=bulk.SCOPE,release_sha256=release_sha,worker_sha256=worker,generation=self.generation,
+        binding=dict(scope=bulk.SCOPE,release_sha256=release_sha,worker_sha256=worker,generation=self.generation,
                     previous_checkpoint_sha256=self.parent['sha256'],anchor_sha256=bulk.ANCHOR,target=iam.BUCKET+'/'+iam.PREFIX,
                     limits=self.limits,request=plan['request'],first_inputs=plan['first_inputs'],
                     plan_sha256=c.digest(plan),physical_baseline_sha256=opening['baseline_sha256'],
                     marker_history_sha256=c.digest(opening['marker_history']),reader=reader,production=production)
+        if self.generation >= 18:
+            transfers = self.read('sst-transfer-plan.json')
+            require(transfers['parent_sha256'] == self.parent['sha256'], 'transfer plan predecessor changed')
+            binding['sst_workers'] = sst_worker_count(transfers['workers'])
+        return binding
 
     def accept(self,envelope):
         raw=base64.b64decode(envelope['claims'],validate=True)
@@ -353,9 +400,23 @@ class Batch:
             creds,account=fixed_writer()
             with contextlib.closing(host.r.s3_client(creds['AccessKeyId'],creds['SecretAccessKey'])) as raw:
                 signer=host.r.live.ConditionalS3(raw)
-                for name,pin in hashes.items():
-                    pilot.conditional_upload(admin,signer,account,'writer',self.payloads/name,pin,
-                                             state=self.state,reconcile_missing=reconcile)
+                # Each signer installs a per-request conditional-header hook on its own SDK client.
+                # Construct the clients on this thread and join every transfer before closing them.
+                with contextlib.ExitStack() as extra:
+                    clients = [(admin, signer)]
+                    workers = binding['sst_workers'] if self.generation >= 18 else 1
+                    for _ in range(1, min(sst_worker_count(workers), len(hashes))):
+                        reader = extra.enter_context(admin_reader())
+                        raw_writer = extra.enter_context(contextlib.closing(
+                            host.r.s3_client(creds['AccessKeyId'], creds['SecretAccessKey'])))
+                        clients.append((reader, host.r.live.ConditionalS3(raw_writer)))
+
+                    def upload(pair, name, pin):
+                        reader, writer = pair
+                        pilot.conditional_upload(reader, writer, account, 'writer', self.payloads/name, pin,
+                                                 state=self.state, reconcile_missing=reconcile)
+
+                    transfer_ssts(hashes, clients, upload)
                 for name in sorted(new.keys()-old.keys()-{marker}):
                     pilot.conditional_upload(admin,signer,account,'writer',self.state/'closed-metadata'/name,
                         dict(size=len(new[name]),sha256=c.raw_sha(new[name])),state=self.state,reconcile_missing=reconcile)
@@ -415,7 +476,11 @@ def main(argv=None):
     parser.add_argument('mode',choices=('status','prepare','observe','accept','run','resume','park'))
     parser.add_argument('generation',nargs='?',type=int)
     parser.add_argument('nonce',nargs='?')
+    parser.add_argument('--sst-workers', type=int, choices=range(1,5),
+                        help='concurrent sealed SST transfers for a new admission (default 1)')
     args=parser.parse_args(argv)
+    if args.sst_workers is not None and args.mode != 'prepare':
+        parser.error('--sst-workers applies to prepare only')
     os.umask(0o077)
     logging.disable(logging.CRITICAL)
     with prep.writer_lock():
@@ -429,7 +494,7 @@ def main(argv=None):
         require(args.generation is not None or args.mode=='prepare','an explicit generation is required')
         batch=Batch(args.generation if args.generation is not None else head['generation']+1)
         if args.mode=='prepare':
-            return batch.prepare()
+            return batch.prepare(args.sst_workers or 1)
         if args.mode=='observe':
             return batch.observation()
         if args.mode=='accept':

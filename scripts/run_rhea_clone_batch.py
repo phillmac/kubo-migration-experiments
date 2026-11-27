@@ -54,7 +54,7 @@ def verify_release(path,tmp):
     return digest(raw),manifest['files']['worker']
 
 
-def validate(binding,head,gen,release,worker):
+def validate(binding,head,gen,release,worker,*,sst_workers=1):
     require(binding['scope']==SCOPE and binding['target']==TARGET and binding['anchor_sha256']==ANCHOR
             and binding['generation']==gen==head['generation']+1 and binding['previous_checkpoint_sha256']==head['sha256']
             and binding['release_sha256']==release and binding['worker_sha256']==worker,'requested generation, signer or target differs')
@@ -62,6 +62,12 @@ def validate(binding,head,gen,release,worker):
                 cache_bytes=96<<30,minimum_free_bytes=2<<40,backlog_bytes=768<<20,backlog_files=256)
     if gen >= 17:
         limits.update(maximum_units=64,input_bytes=4<<30,sst_output_bytes=4<<30,backlog_bytes=5<<30)
+    if gen >= 18:
+        received = binding.get('sst_workers')
+        require(type(received) is int and type(sst_workers) is int and 1 <= received == sst_workers <= 4,
+                'requested concurrent SST count differs')
+    else:
+        require(sst_workers == 1, 'earlier generation requires serial transfers')
     req=binding['request']
     require(binding['limits']==limits and req['maximum_units']==limits['maximum_units'] and req['before']['format']=='013'
             and req['before']['marked']>0 and binding['first_inputs'] and binding['production']['queue']==0
@@ -81,7 +87,11 @@ def main():
     parser.add_argument('generation',type=int)
     parser.add_argument('--release',required=True,type=Path,help='signed local release manifest with adjacent .sig')
     parser.add_argument('--resume',action='store_true',help='reconcile closed output and finish certification')
+    parser.add_argument('--sst-workers', type=int, choices=range(1,5),
+                        help='concurrent sealed SST transfers for a new admission (default 1)')
     args=parser.parse_args()
+    if args.sst_workers is not None and (args.resume or args.generation < 18):
+        parser.error('--sst-workers applies to new admissions from generation 18 onward')
     os.umask(0o077)
     cmd=['/usr/bin/python3','-I','-B',LARGE_CTL if args.generation>=17 else CTL]
     with tempfile.TemporaryDirectory(dir=KEYS,prefix='batch-admission.') as temp:
@@ -96,8 +106,10 @@ def main():
         number=str(args.generation)
         run_args=['resume',number]
         if not args.resume:
-            binding=json.loads(remote([*cmd,'prepare',number]))
-            validate(binding,head,args.generation,sha,worker)
+            workers = args.sst_workers or 1
+            options = ['--sst-workers', str(workers)] if args.generation >= 18 else []
+            binding=json.loads(remote([*cmd,'prepare',number,*options]))
+            validate(binding,head,args.generation,sha,worker,sst_workers=workers)
             now=int(time.time())
             nonce=secrets.token_hex(32)
             raw=canonical(dict(binding=binding,issued=now,expires=now+895,nonce=nonce))
