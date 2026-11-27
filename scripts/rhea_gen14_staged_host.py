@@ -249,7 +249,11 @@ class WriterMount:
         health = dict(cache_bytes=disk['bytesUsed'],free_bytes=shutil.disk_usage(self.work).free,
                       queue_bytes=sum(row['size'] for row in rows),queue_files=len(rows),errors=disk['erroredFiles'],
                       transferring=disk['uploadsInProgress'])
-        c.health(health, limits=self.limits)
+        if self.limits is None:
+            c.health(health)
+        else:
+            from rhea_clone_batch_proof import validate_health
+            validate_health(health, self.limits)
         return rows,health
 
     @contextlib.contextmanager

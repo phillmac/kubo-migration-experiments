@@ -1,5 +1,5 @@
 """Verification for successors of the certified generation-14 disposable clone."""
-import hashlib
+import base64
 import os
 from pathlib import Path
 
@@ -28,6 +28,44 @@ def validate_io(io, limits):
         maximum = io.get('max_' + kind + '_write_bytes')
         require(type(maximum) is int and maximum == cap and type(actual) is int and 0 <= actual <= cap,
                 'cumulative write counter or budget differs')
+
+
+def validate_health(value, limits):
+    names = ('cache_bytes', 'free_bytes', 'queue_bytes', 'queue_files', 'errors', 'transferring')
+    require(all(type(value.get(n)) is int and value[n] >= 0 for n in names), 'invalid clone resource sample')
+    require(value['cache_bytes'] <= limits['cache_bytes'] and value['free_bytes'] >= limits['minimum_free_bytes']
+            and value['queue_bytes'] <= limits['backlog_bytes'] and value['queue_files'] <= limits['backlog_files']
+            and value['errors'] == value['transferring'] == 0, 'clone queue or free-space limit exceeded')
+
+
+def validate_closed(writer, intent, limits):
+    """Bind the signed large-batch request to the child exit and every durable Go record."""
+    validate_health(writer['health'], limits)
+    identity = c.process_tuple(writer['source_process'])
+    require(identity['exe_sha256'] == writer['binary_sha256'] == intent['go_binary_sha256']
+            and identity['boot_id'] == intent['reader_identity']['boot_id']
+            and type(writer['exit_code']) is int and writer['exit_code'] == 0
+            and writer['stopped'] is True and writer['monitor_complete'] is True, 'clone writer exit differs')
+    report = writer['report']
+    request = intent['request']
+    units = report['units']
+    require(report['closed'] is True and not report.get('error') and not report.get('attempted_unit')
+            and report['stop_reason'] in ('unit-limit', 'no-marked-files', 'next-unit-budget')
+            and c.digest(report['request']) == c.digest(request)
+            and type(report['physical_compactions']) is int and 1 <= len(units) == report['physical_compactions']
+            <= intent['unit_count'] == request['maximum_units'] == limits['maximum_units'], 'unclosed or partial batch')
+    expected = {'pending.json': dict(schema=v.WRITER_SCHEMA, phase='executing', request=request), 'closed.json': report}
+    for index, unit in enumerate(units, 1):
+        prefix = f'unit-{index:03d}'
+        before = dict(format=unit['before_format'], marked=unit['marked_before'], files=unit['sst_files_before'],
+                      bytes=unit['sst_bytes_before'], inventory_sha256=unit['sst_inventory_sha256_before'])
+        expected[prefix+'-intent.json'] = dict(index=index, before=before, picker_plan=unit['picker_plan'])
+        expected[prefix+'-receipt.json'] = unit
+    files = writer['go_files']
+    require(files.keys() == expected.keys(), 'missing or extra clone writer record')
+    for name, record in expected.items():
+        raw = base64.b64decode(files[name], validate=True)
+        require(c.digest(c.parse(raw)) == c.digest(record), 'clone writer journal differs: '+name)
 
 
 def predecessor(cert, sha):

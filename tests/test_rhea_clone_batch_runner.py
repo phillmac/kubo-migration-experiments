@@ -173,9 +173,9 @@ class FourGiBCheckpointTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 bulk.validate_io(changed,large)
         health=dict(cache_bytes=0,free_bytes=2<<40,queue_bytes=5<<30,queue_files=64,errors=0,transferring=0)
-        c.health(health,limits=large)
+        bulk.validate_health(health,large)
         with self.assertRaises(RuntimeError):
-            c.health(dict(health,queue_bytes=(5<<30)+1),limits=large)
+            bulk.validate_health(dict(health,queue_bytes=(5<<30)+1),large)
         with self.assertRaises(RuntimeError):
             c.health(health)
 

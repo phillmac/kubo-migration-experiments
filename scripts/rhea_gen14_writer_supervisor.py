@@ -120,7 +120,11 @@ def supervise(proc, sock, intent, journal, monitor, health, *, clock=time.monoto
     c.require(failure is None, 'final host check failed')
     receipt = dict(report=final, go_files=records, source_process=identity, binary_sha256=identity['exe_sha256'],
                    exit_code=proc.returncode, stopped=True, monitor_complete=True, health=health())
-    c.validate_closed(receipt, intent, limits=limits)
+    if limits is None:
+        c.validate_closed(receipt, intent)
+    else:
+        from rhea_clone_batch_proof import validate_closed
+        validate_closed(receipt, intent, limits)
     return receipt
 
 

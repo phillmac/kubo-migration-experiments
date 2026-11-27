@@ -337,7 +337,7 @@ class Batch:
         require(launch['admission_sha256']==a.sha(verified.raw) and launch['intent']['request']==binding['request']
                 and launch['intent']['go_binary_sha256']==binding['worker_sha256'],'launch receipt differs')
         writer=self.read('writer-closed.json')
-        c.validate_closed(writer,launch['intent'],limits=self.limits)
+        bulk.validate_closed(writer,launch['intent'],self.limits)
         require(not h.main_pid(host.UNIT) and not h.main_pid(host.PROBE) and guard()==binding['production'],
                 'writer not parked or production changed')
         self.save('quarantine.json',self.quarantine())
