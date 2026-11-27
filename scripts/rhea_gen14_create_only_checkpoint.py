@@ -138,7 +138,8 @@ def closed_metadata(cert, old, new):
     return info
 
 
-def verify(client, opening, cert, old, new, writer, hashes, published=None, *, previous_sha=v.GENERATION13_SHA256):
+def verify(client, opening, cert, old, new, writer, hashes, published=None, *, previous_sha=v.GENERATION13_SHA256,
+           sst_readers=None):
     """Each invocation enumerates the full physical prefix, checks historical pins and hashes new SSTs."""
     import secrets
     import time
@@ -187,7 +188,12 @@ def verify(client, opening, cert, old, new, writer, hashes, published=None, *, p
         if name == marker:
             require(pin == published, 'published marker version differs')
         (logical if name in new else retained_meta)[name] = pin
-    created_versions = {name: p._hash_new_sst(client, name, latest[PREFIX+name], hashes[name]) for name in created}
+    read_evidence = {}
+    if sst_readers is None:
+        created_versions = {name: p._hash_new_sst(client, name, latest[PREFIX+name], hashes[name]) for name in created}
+    else:
+        require(successor and cert['generation'] >= 18, 'parallel proof reads require a generation-19 successor or later')
+        created_versions, read_evidence['sst_read_metrics'] = bulk.hash_proof_ssts(sst_readers, created, latest, hashes)
     retired_states = dict(cert['retired_sst_states'])
     for name in retired:
         pin = current[name]
@@ -215,7 +221,7 @@ def verify(client, opening, cert, old, new, writer, hashes, published=None, *, p
                 unchanged_sst_payload_bytes_downloaded=0, retired_sst_states=retired_states,
                 created_sst_versions=created_versions, remote_metadata=logical, retained_remote_metadata=retained_meta,
                 latest_delete_markers=len(deleted), physical_baseline_sha256=opening['baseline_sha256'],
-                marker_history_sha256=c.digest(marker_before), manifest_view=view, enumeration_metrics=metrics,
+                marker_history_sha256=c.digest(marker_before), manifest_view=view, enumeration_metrics=metrics, **read_evidence,
                 **({'sealed_physical_sha256': baseline_digest(latest,deleted,set())} if successor else {}))
 
 

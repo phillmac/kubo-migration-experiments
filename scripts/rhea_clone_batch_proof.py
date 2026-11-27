@@ -1,7 +1,9 @@
 """Verification for successors of the certified generation-14 disposable clone."""
 import base64
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import os
 from pathlib import Path
+import time
 
 import rhea_gen14_create_only_checkpoint as original
 import rhea_gen14_retained_manifest_proof as markers
@@ -14,6 +16,75 @@ LIMITS = dict(v.LIMITS, maximum_units=8, input_bytes=512 << 20)
 FOUR_GIB_LIMITS = dict(LIMITS, maximum_units=64, input_bytes=4 << 30,
                        sst_output_bytes=4 << 30, backlog_bytes=5 << 30)
 SCHEMA = 3
+
+
+def sst_worker_count(value):
+    require(type(value) is int and 1 <= value <= 4, 'select between one and four SST workers')
+    return value
+
+
+def map_ssts(items, clients, operation):
+    """Use each client for one SST at a time. Drain active work before propagating an error."""
+    sst_worker_count(len(clients))
+    require(items and all(p.base.SST_NAME.fullmatch(name) for name in items), 'expected exact SST names')
+    if len(clients) == 1:
+        return {name: operation(clients[0], name, item) for name, item in items.items()}
+
+    remaining = iter(items.items())
+    results = {}
+    with ThreadPoolExecutor(max_workers=len(clients), thread_name_prefix='clone-sst') as pool:
+        active = {}
+
+        def submit_next(client):
+            item = next(remaining, None)
+            if item is not None:
+                name, value = item
+                active[pool.submit(operation, client, name, value)] = (client, name)
+
+        for client in clients:
+            submit_next(client)
+        while active:
+            completed, _ = wait(active, return_when=FIRST_COMPLETED)
+            for future in completed:
+                _, name = active[future]
+                results[name] = future.result()
+            for future in completed:
+                client, _ = active.pop(future)
+                submit_next(client)
+    return results
+
+
+def hash_proof_ssts(readers, created, latest, hashes):
+    """Fetch and hash every new version afresh for this pass, with monotonic timing per SST."""
+    require(created.keys() == hashes.keys(), 'proof SST set differs from sealed outputs')
+    start = time.monotonic_ns()
+
+    def read_one(client, name, expected):
+        begin = time.monotonic_ns() - start
+        pin = p._hash_new_sst(client, name, latest[p.PREFIX + name], expected)
+        return pin, [begin, time.monotonic_ns() - start]
+
+    results = map_ssts(hashes, readers, read_one)
+    elapsed = time.monotonic_ns() - start
+    return ({n: pin for n, (pin, _) in results.items()},
+            dict(workers=len(readers), elapsed_ns=elapsed, intervals_ns={n: span for n, (_, span) in results.items()}))
+
+
+def check_read_metrics(report, workers):
+    sst_worker_count(workers)
+    metrics = report['sst_read_metrics']
+    spans = metrics['intervals_ns']
+    elapsed = metrics['elapsed_ns']
+    require(sst_worker_count(metrics['workers']) == workers and spans.keys() == report['created_sst_versions'].keys()
+            and spans and type(elapsed) is int and elapsed > 0, 'proof read coverage or width differs')
+    events = []
+    for begin, end in spans.values():
+        require(type(begin) is type(end) is int and 0 <= begin < end <= elapsed, 'invalid SST read interval')
+        events.extend(((begin, 1), (end, -1)))
+    active = 0
+    for _, delta in sorted(events):
+        active += delta
+        require(0 <= active <= workers, 'proof read concurrency exceeds admission')
 
 
 def limits_for(generation):
@@ -217,6 +288,11 @@ def finalize(cert, before, final, reopen, logical):
             'checkpoint proofs or predecessor differ')
     variable={'mode','remote_generation_verified','proof_pass_id','verified_unix','enumeration_metrics','manifest_view',
               'remote_metadata','marker_history_sha256','sealed_physical_sha256'}
+    if final['generation'] >= 19:
+        workers = before['sst_read_metrics']['workers']
+        check_read_metrics(before, workers)
+        check_read_metrics(final, workers)
+        variable.add('sst_read_metrics')
     require({k:w for k,w in before.items() if k not in variable}=={k:w for k,w in final.items() if k not in variable}
             and final['scope']==SCOPE and final['schema']==SCHEMA and final['limits']==limits_for(final['generation'])
             and before['manifest_view']==cert['manifest_view'] and final['manifest_view']['active']==final['manifest_marker']

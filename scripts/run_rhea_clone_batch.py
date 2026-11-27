@@ -54,7 +54,7 @@ def verify_release(path,tmp):
     return digest(raw),manifest['files']['worker']
 
 
-def validate(binding,head,gen,release,worker,*,sst_workers=1):
+def validate(binding,head,gen,release,worker,*,sst_workers=1,proof_workers=1):
     require(binding['scope']==SCOPE and binding['target']==TARGET and binding['anchor_sha256']==ANCHOR
             and binding['generation']==gen==head['generation']+1 and binding['previous_checkpoint_sha256']==head['sha256']
             and binding['release_sha256']==release and binding['worker_sha256']==worker,'requested generation, signer or target differs')
@@ -68,6 +68,12 @@ def validate(binding,head,gen,release,worker,*,sst_workers=1):
                 'requested concurrent SST count differs')
     else:
         require(sst_workers == 1, 'earlier generation requires serial transfers')
+    if gen >= 19:
+        received = binding.get('proof_workers')
+        require(type(received) is int and type(proof_workers) is int and 1 <= received == proof_workers <= 4,
+                'requested proof read count differs')
+    else:
+        require(proof_workers == 1, 'earlier generation requires serial proof reads')
     req=binding['request']
     require(binding['limits']==limits and req['maximum_units']==limits['maximum_units'] and req['before']['format']=='013'
             and req['before']['marked']>0 and binding['first_inputs'] and binding['production']['queue']==0
@@ -89,7 +95,11 @@ def main():
     parser.add_argument('--resume',action='store_true',help='reconcile closed output and finish certification')
     parser.add_argument('--sst-workers', type=int, choices=range(1,5),
                         help='concurrent sealed SST transfers for a new admission (default 1)')
+    parser.add_argument('--proof-workers', type=int, choices=range(1,5),
+                        help='concurrent version-pinned SST reads per proof (default 1)')
     args=parser.parse_args()
+    if args.proof_workers is not None and (args.resume or args.generation < 19):
+        parser.error('--proof-workers applies to new admissions from generation 19 onward')
     if args.sst_workers is not None and (args.resume or args.generation < 18):
         parser.error('--sst-workers applies to new admissions from generation 18 onward')
     os.umask(0o077)
@@ -108,8 +118,11 @@ def main():
         if not args.resume:
             workers = args.sst_workers or 1
             options = ['--sst-workers', str(workers)] if args.generation >= 18 else []
+            proof_workers = args.proof_workers or 1
+            if args.generation >= 19:
+                options.extend(['--proof-workers', str(proof_workers)])
             binding=json.loads(remote([*cmd,'prepare',number,*options]))
-            validate(binding,head,args.generation,sha,worker,sst_workers=workers)
+            validate(binding,head,args.generation,sha,worker,sst_workers=workers,proof_workers=proof_workers)
             now=int(time.time())
             nonce=secrets.token_hex(32)
             raw=canonical(dict(binding=binding,issued=now,expires=now+895,nonce=nonce))

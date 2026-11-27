@@ -2,7 +2,6 @@
 import argparse
 import base64
 import contextlib
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import json
 import logging
 import os
@@ -20,6 +19,7 @@ if __name__=='__main__':
     sys.path.insert(0,str(fixed))
 
 import rhea_clone_batch_proof as bulk
+from rhea_clone_batch_proof import map_ssts as transfer_ssts, sst_worker_count
 import rhea_clone_batch_publisher as publisher
 import rhea_gen14_live_checkpoint as pilot
 
@@ -93,6 +93,8 @@ def check_claims(raw,signature,binding,*,historical=False):
             and binding['request']['maximum_units']==binding['limits']['maximum_units'], 'admission binding differs')
     if binding['generation'] >= 18:
         sst_worker_count(binding['sst_workers'])
+    if binding['generation'] >= 19:
+        sst_worker_count(binding['proof_workers'])
     now=claims['issued'] if historical else int(time.time())
     require(all(type(claims[k]) is int for k in ('issued','expires')) and claims['issued']<=now<claims['expires']
             <=claims['issued']+a.MAX_LIFETIME and isinstance(claims['nonce'],str) and a.HEX.fullmatch(claims['nonce'])
@@ -110,41 +112,6 @@ def admin_reader():
 
 def fixed_writer():
     return host.role_credentials('writer',iam.anchored_checkpoint())
-
-
-def sst_worker_count(value):
-    require(type(value) is int and 1 <= value <= 4, 'select between one and four SST transfers')
-    return value
-
-
-def transfer_ssts(hashes, clients, upload):
-    """Give each client pair one key at a time. Drain active transfers before propagating any error."""
-    sst_worker_count(len(clients))
-    require(hashes and all(proof.p.base.SST_NAME.fullmatch(name) for name in hashes),
-            'parallel transfers require exact SST names')
-    if len(clients) == 1:
-        for name, pin in hashes.items():
-            upload(clients[0], name, pin)
-        return
-
-    remaining = iter(hashes.items())
-    with ThreadPoolExecutor(max_workers=len(clients), thread_name_prefix='clone-sst') as pool:
-        active = {}
-
-        def submit_next(pair):
-            item = next(remaining, None)
-            if item is not None:
-                name, pin = item
-                active[pool.submit(upload, pair, name, pin)] = pair
-
-        for pair in clients:
-            submit_next(pair)
-        while active:
-            completed, _ = wait(active, return_when=FIRST_COMPLETED)
-            for future in completed:
-                future.result()
-            for future in completed:
-                submit_next(active.pop(future))
 
 
 def publish_after_policy_change(put, verify_empty, record, *, resume=False, wait=time.sleep):
@@ -197,12 +164,23 @@ class Batch:
     def save(self,name,value):
         prep.save(self.state/name,value)
 
+    def verify_remote(self, admin, binding, args, published=None):
+        if self.generation < 19:
+            return proof.verify(admin, *args, published, previous_sha=self.parent['sha256'])
+        with contextlib.ExitStack() as stack:
+            readers = [admin]
+            for _ in range(1, sst_worker_count(binding['proof_workers'])):
+                readers.append(stack.enter_context(admin_reader()))
+            return proof.verify(admin, *args, published, previous_sha=self.parent['sha256'], sst_readers=readers)
+
     def opening(self):
         with admin_reader() as client:
             return proof.anchored_inventory(client,self.cert,self.parent['sha256'])
 
-    def prepare(self, sst_workers=1):
+    def prepare(self, sst_workers=1, proof_workers=1):
         sst_worker_count(sst_workers)
+        sst_worker_count(proof_workers)
+        require(self.generation >= 19 or proof_workers == 1, 'earlier generation requires serial proof reads')
         require(self.generation >= 18 or sst_workers == 1, 'earlier generation requires serial transfers')
         require(not (self.state/'intent.json').exists(),'existing admitted batch requires resume')
         host.mkdir(self.state)
@@ -210,7 +188,10 @@ class Batch:
         reader=h.reader(True)
         production=guard(reader)
         if self.generation >= 18:
-            self.save('sst-transfer-plan.json', dict(workers=sst_workers, parent_sha256=self.parent['sha256']))
+            transfers = dict(workers=sst_workers, parent_sha256=self.parent['sha256'])
+            if self.generation >= 19:
+                transfers['proof_workers'] = proof_workers
+            self.save('sst-transfer-plan.json', transfers)
         old=bulk.logical_metadata(prep.DB,self.cert)
         prep.save_metadata(self.state/'previous-metadata',old)
         proposal=host.inspector(INSTALL/'worker','plan')
@@ -251,6 +232,8 @@ class Batch:
             transfers = self.read('sst-transfer-plan.json')
             require(transfers['parent_sha256'] == self.parent['sha256'], 'transfer plan predecessor changed')
             binding['sst_workers'] = sst_worker_count(transfers['workers'])
+            if self.generation >= 19:
+                binding['proof_workers'] = sst_worker_count(transfers['proof_workers'])
         return binding
 
     def accept(self,envelope):
@@ -421,8 +404,10 @@ class Batch:
                     pilot.conditional_upload(admin,signer,account,'writer',self.state/'closed-metadata'/name,
                         dict(size=len(new[name]),sha256=c.raw_sha(new[name])),state=self.state,reconcile_missing=reconcile)
             if not (self.state/'before-publication.json').exists():
-                self.save('before-publication.json',proof.verify(admin,*args,previous_sha=self.parent['sha256']))
+                self.save('before-publication.json',self.verify_remote(admin, binding, args))
             before=self.read('before-publication.json')
+            if self.generation >= 19:
+                bulk.check_read_metrics(before, binding['proof_workers'])
             require(before['physical_baseline_sha256']==binding['physical_baseline_sha256'] and before['go_report_sha256']==c.digest(report)
                     and before['previous_checkpoint_sha256']==self.parent['sha256'] and before['changed_markers']==[marker]
                     and before['mode']=='before-markers' and before['remote_generation_verified'] is False,'prepublication evidence differs')
@@ -452,8 +437,10 @@ class Batch:
                               code='AccessDenied',policy_sha256=self.read('publisher-version.json')['sha256']))
                 published=publish_after_policy_change(put_marker,verify_empty,record_denial,resume=reconcile)
             if not (self.state/'final-remote.json').exists():
-                self.save('final-remote.json',proof.verify(admin,*args,published,previous_sha=self.parent['sha256']))
+                self.save('final-remote.json',self.verify_remote(admin, binding, args, published))
             final=self.read('final-remote.json')
+            if self.generation >= 19:
+                bulk.check_read_metrics(final, binding['proof_workers'])
             bulk.marker_view(self.cert,opening['marker_history'],proof.enumerate_markers(admin),marker,published)
         if h.main_pid(h.READER):
             pilot.stopped_reader(h.reader(True))
@@ -478,9 +465,13 @@ def main(argv=None):
     parser.add_argument('nonce',nargs='?')
     parser.add_argument('--sst-workers', type=int, choices=range(1,5),
                         help='concurrent sealed SST transfers for a new admission (default 1)')
+    parser.add_argument('--proof-workers', type=int, choices=range(1,5),
+                        help='concurrent version-pinned SST reads within each proof (default 1)')
     args=parser.parse_args(argv)
     if args.sst_workers is not None and args.mode != 'prepare':
         parser.error('--sst-workers applies to prepare only')
+    if args.proof_workers is not None and args.mode != 'prepare':
+        parser.error('--proof-workers applies to prepare only')
     os.umask(0o077)
     logging.disable(logging.CRITICAL)
     with prep.writer_lock():
@@ -494,7 +485,7 @@ def main(argv=None):
         require(args.generation is not None or args.mode=='prepare','an explicit generation is required')
         batch=Batch(args.generation if args.generation is not None else head['generation']+1)
         if args.mode=='prepare':
-            return batch.prepare(args.sst_workers or 1)
+            return batch.prepare(args.sst_workers or 1, args.proof_workers or 1)
         if args.mode=='observe':
             return batch.observation()
         if args.mode=='accept':
