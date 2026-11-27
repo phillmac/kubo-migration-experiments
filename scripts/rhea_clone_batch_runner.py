@@ -11,8 +11,10 @@ import tempfile
 import time
 
 if __name__=='__main__':
-    fixed=Path('/root/.local/share/rhea-clone-batch-runner-v1/scripts')
-    if Path(__file__).parent!=fixed or os.geteuid()!=0:
+    fixed=Path(__file__).parent
+    allowed={Path('/root/.local/share')/name/'scripts' for name in
+             ('rhea-clone-batch-runner-v1','rhea-clone-batch-runner-4g-v1')}
+    if fixed not in allowed or os.geteuid()!=0:
         raise SystemExit('fixed root clone-batch installation required')
     sys.path.insert(0,str(fixed))
 
@@ -23,7 +25,7 @@ import rhea_gen14_live_checkpoint as pilot
 prep,host,h,iam,c,a,proof = pilot.prep,pilot.host,pilot.h,pilot.iam,pilot.c,pilot.a,pilot.proof
 require=c.require
 ROOT=Path('/root/.local/share/rhea-pebble-clone-batches')
-INSTALL=host.BATCH_INSTALL
+INSTALL=host.BATCH_INSTALL if Path(__file__).parent.parent==host.BATCH_INSTALL else host.FOUR_GIB_INSTALL
 ANCHOR_FILE=host.STATE/'checkpoint-000014.json'
 REQUIRED={'scripts/rhea_clone_batch_runner.py','scripts/rhea_clone_batch_proof.py','scripts/rhea_clone_batch_publisher.py'}
 
@@ -86,8 +88,8 @@ def check_claims(raw,signature,binding,*,historical=False):
     claims=a.parse(raw)
     require(set(claims)=={'binding','issued','expires','nonce'} and a.canonical(claims['binding'])==a.canonical(binding)
             and binding['scope']==bulk.SCOPE and binding['release_sha256']==release()[0]
-            and binding['target']==iam.BUCKET+'/'+iam.PREFIX and binding['limits']==bulk.LIMITS
-            and binding['request']['maximum_units']==bulk.LIMITS['maximum_units'], 'admission binding differs')
+            and binding['target']==iam.BUCKET+'/'+iam.PREFIX and binding['limits']==bulk.limits_for(binding['generation'])
+            and binding['request']['maximum_units']==binding['limits']['maximum_units'], 'admission binding differs')
     now=claims['issued'] if historical else int(time.time())
     require(all(type(claims[k]) is int for k in ('issued','expires')) and claims['issued']<=now<claims['expires']
             <=claims['issued']+a.MAX_LIFETIME and isinstance(claims['nonce'],str) and a.HEX.fullmatch(claims['nonce'])
@@ -107,6 +109,23 @@ def fixed_writer():
     return host.role_credentials('writer',iam.anchored_checkpoint())
 
 
+def publish_after_policy_change(put, verify_empty, record, *, resume=False, wait=time.sleep):
+    """Retry only an explicitly denied conditional PUT after rechecking the closed generation."""
+    delays = (25, 65)
+    for attempt in range(len(delays) + 1):
+        try:
+            return put(resume or attempt > 0)
+        except Exception as error:
+            response = getattr(error, 'response', {})
+            if (attempt == len(delays) or getattr(error, 'operation_name', None) != 'PutObject'
+                    or response.get('Error', {}).get('Code') != 'AccessDenied'
+                    or response.get('ResponseMetadata', {}).get('HTTPStatusCode') != 403):
+                raise
+            record(attempt + 1, delays[attempt])
+        wait(delays[attempt])
+        verify_empty()
+
+
 def verify_plan(plan,cert,metadata):
     tables,stats=proof.p._decode_tables(metadata[cert['manifest']])
     before=proof.v._state(tables)
@@ -114,7 +133,7 @@ def verify_plan(plan,cert,metadata):
                          bytes=cert['sst_bytes'],inventory_sha256=cert['sst_inventory_sha256'])
             and stats['marked_files']==cert['marked_after'],'predecessor MANIFEST inventory differs')
     picker=proof.v._plan(plan['first_picker_plan'],tables)
-    require(plan['request']==dict(maximum_units=bulk.LIMITS['maximum_units'],before=before,
+    require(plan['request']==dict(maximum_units=bulk.limits_for(cert['generation']+1)['maximum_units'],before=before,
                                   initial_plan_sha256=picker['plan_sha256'])
             and plan['first_inputs']==sorted((dict(name=n,number=tables[n]['number'],size=tables[n]['size'],level=tables[n]['level'])
                        for n in picker['input_files']),key=lambda row:row['number']), 'picker request differs from MANIFEST')
@@ -123,8 +142,11 @@ def verify_plan(plan,cert,metadata):
 class Batch:
     def __init__(self,generation):
         self.parent,self.cert=read_head()
-        require(type(generation) is int and self.parent['generation']+1==generation<=999999,'select the next generation')
+        require(type(generation) is int and 15<=generation==self.parent['generation']+1<=999999,'select the next generation')
+        require(INSTALL==(host.FOUR_GIB_INSTALL if generation>=17 else host.BATCH_INSTALL),
+                'use the signed worker profile for this generation')
         self.generation=generation
+        self.limits=bulk.limits_for(generation)
         name=f'{generation:06d}'
         self.state=ROOT/name
         self.data=host.BATCH_DATA/name
@@ -155,6 +177,13 @@ class Batch:
             saved=host.read(host.STATE/'readback-and-next-picker.json')['next_read_only_picker']
             require(saved['inputs']==proposal['first_inputs'] and saved['plan_sha256']==proposal['request']['initial_plan_sha256'],
                     'first successor picker differs from generation-14 readback')
+        if self.generation==17:
+            acceptance=host.read(ROOT/'acceptance-000015-000016.json')
+            require(c.digest(acceptance)=='fd63640875568a4cce9e4b5f6a6a4f3995509a20100fb349a9996fac3d178c3a'
+                    and acceptance['head']==self.parent, 'generation-16 readback differs')
+            saved=acceptance['independent_readback']['next_read_only_picker']
+            require(saved['inputs']==proposal['first_inputs'] and saved['plan_sha256']==proposal['request']['initial_plan_sha256'],
+                    'first large picker differs from generation-16 readback')
         opening=self.opening()
         require(guard(reader)==production and read_head()[0]==self.parent,'state changed during preparation')
         if (self.state/'opening.json').exists():
@@ -173,7 +202,7 @@ class Batch:
         opening=self.read('opening.json')
         return dict(scope=bulk.SCOPE,release_sha256=release_sha,worker_sha256=worker,generation=self.generation,
                     previous_checkpoint_sha256=self.parent['sha256'],anchor_sha256=bulk.ANCHOR,target=iam.BUCKET+'/'+iam.PREFIX,
-                    limits=bulk.LIMITS,request=plan['request'],first_inputs=plan['first_inputs'],
+                    limits=self.limits,request=plan['request'],first_inputs=plan['first_inputs'],
                     plan_sha256=c.digest(plan),physical_baseline_sha256=opening['baseline_sha256'],
                     marker_history_sha256=c.digest(opening['marker_history']),reader=reader,production=production)
 
@@ -254,7 +283,7 @@ class Batch:
                     go_binary_sha256=binding['worker_sha256'],reader_identity=binding['reader']['process'])
         self.save('writer-launch.json',dict(admission_sha256=a.sha(verified.raw),mount=ident,intent=intent))
         with journal.lock(),self.mount.launch('worker') as (proc,sock):
-            receipt=host.supervisor.supervise(proc,sock,intent,journal,monitor,lambda:self.mount.sample()[1])
+            receipt=host.supervisor.supervise(proc,sock,intent,journal,monitor,lambda:self.mount.sample()[1],limits=self.limits)
         self.save('writer-closed.json',receipt)
         rows,health=self.mount.sample()
         expected={row['name']:row['size'] for row in receipt['report']['sst_diff']['created']}
@@ -296,7 +325,7 @@ class Batch:
         hashes=pilot.hash_files(report,self.payloads)
         before,bs=proof.p._decode_tables(old[self.cert['manifest']])
         after,ats=proof.p._decode_tables(new[info['manifest']])
-        bulk.validate_batch(report,before,after,bs,ats,hashes)
+        bulk.validate_batch(report,before,after,bs,ats,hashes,limits=self.limits)
         self.save('snapshot.json',dict(hashes=hashes,writer_sha256=c.digest(report),metadata={n:c.raw_sha(b) for n,b in new.items()}))
         return old,new,hashes,info
 
@@ -308,7 +337,7 @@ class Batch:
         require(launch['admission_sha256']==a.sha(verified.raw) and launch['intent']['request']==binding['request']
                 and launch['intent']['go_binary_sha256']==binding['worker_sha256'],'launch receipt differs')
         writer=self.read('writer-closed.json')
-        c.validate_closed(writer,launch['intent'])
+        c.validate_closed(writer,launch['intent'],limits=self.limits)
         require(not h.main_pid(host.UNIT) and not h.main_pid(host.PROBE) and guard()==binding['production'],
                 'writer not parked or production changed')
         self.save('quarantine.json',self.quarantine())
@@ -347,8 +376,20 @@ class Batch:
             self.save('publisher-plan.json',plan)
             creds,account=publisher.credentials(ROOT,self.state,plan)
             with contextlib.closing(host.r.s3_client(creds['AccessKeyId'],creds['SecretAccessKey'])) as raw:
-                published=pilot.conditional_upload(admin,host.r.live.ConditionalS3(raw),account,'publisher',
-                    self.state/'closed-metadata'/marker,dict(size=0,sha256=c.raw_sha(b'')),state=self.state,reconcile_missing=reconcile)
+                signer=host.r.live.ConditionalS3(raw)
+                def put_marker(reconcile_empty):
+                    return pilot.conditional_upload(admin,signer,account,'publisher',self.state/'closed-metadata'/marker,
+                        dict(size=0,sha256=c.raw_sha(b'')),state=self.state,reconcile_missing=reconcile_empty)
+                def verify_empty():
+                    require(guard()==binding['production'] and read_head()[0]==self.parent
+                            and not pilot.history(admin,marker), 'marker or generation changed during policy wait')
+                    bulk.marker_view(self.cert,opening['marker_history'],proof.enumerate_markers(admin),marker)
+                    for n,pin in {**before['remote_metadata'],**before['created_sst_versions']}.items():
+                        proof.p._head_matches(admin,n,pin)
+                def record_denial(attempt,delay):
+                    self.save(f'publisher-denial-{attempt}.json',dict(marker=marker,wait_seconds=delay,
+                              code='AccessDenied',policy_sha256=self.read('publisher-version.json')['sha256']))
+                published=publish_after_policy_change(put_marker,verify_empty,record_denial,resume=reconcile)
             if not (self.state/'final-remote.json').exists():
                 self.save('final-remote.json',proof.verify(admin,*args,published,previous_sha=self.parent['sha256']))
             final=self.read('final-remote.json')

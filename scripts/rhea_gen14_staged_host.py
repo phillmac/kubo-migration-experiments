@@ -26,6 +26,7 @@ INSTALL = Path('/root/.local/share/rhea-gen14-live-checkpoint-warm-20261127')
 STATE = iam.TRIAL / 'checkpoint-000014-warm'
 DATA = Path('/data/rhea-gen14-checkpoint-000014-warm-20261127')
 BATCH_INSTALL = Path('/root/.local/share/rhea-clone-batch-runner-v1')
+FOUR_GIB_INSTALL = Path('/root/.local/share/rhea-clone-batch-runner-4g-v1')
 BATCH_DATA = Path('/data/rhea-pebble-clone-batches')
 UNIT = 'rhea-gen14-full-clone-staged-writer-20261127.service'
 PROBE = 'rhea-gen14-full-clone-staged-inspect-20261127.service'
@@ -123,7 +124,7 @@ def role_credentials(role, cert):
 
 
 def inspector(binary, mode):
-    require(mode in ('plan','inspect') and binary in (INSTALL/'worker', BATCH_INSTALL/'worker'), 'invalid read-only inspection command')
+    require(mode in ('plan','inspect') and binary in (INSTALL/'worker', BATCH_INSTALL/'worker', FOUR_GIB_INSTALL/'worker'), 'invalid read-only inspection command')
     observed = h.reader(True)
     raw = h.output(['/usr/bin/systemd-run','--quiet','--collect','--wait','--pipe','--service-type=exec',
         '-p','PrivateNetwork=yes','-p','CapabilityBoundingSet=','-p','NoNewPrivileges=yes','-p','ProtectSystem=strict',
@@ -138,7 +139,14 @@ class WriterMount:
         batch = (work.parent.parent == BATCH_DATA and re.fullmatch(r'[0-9]{6}', work.parent.name)
                  and work.name == 'writer' and unit == UNIT)
         require(unit in (UNIT,PROBE) and (work.parent == DATA or batch), 'unexpected mount identity')
-        self.binary = (BATCH_INSTALL if batch else INSTALL) / 'worker'
+        self.limits = None
+        install = INSTALL
+        if batch:
+            from rhea_clone_batch_proof import limits_for
+            generation = int(work.parent.name)
+            self.limits = limits_for(generation)
+            install = FOUR_GIB_INSTALL if generation >= 17 else BATCH_INSTALL
+        self.binary = install / 'worker'
         self.work, self.unit = work, unit
         self.cache, self.meta = work/'cache', work/'metadata'
         self.runtime, self.sock = work/'runtime', work/'runtime'/'rc.sock'
@@ -241,7 +249,7 @@ class WriterMount:
         health = dict(cache_bytes=disk['bytesUsed'],free_bytes=shutil.disk_usage(self.work).free,
                       queue_bytes=sum(row['size'] for row in rows),queue_files=len(rows),errors=disk['erroredFiles'],
                       transferring=disk['uploadsInProgress'])
-        c.health(health)
+        c.health(health, limits=self.limits)
         return rows,health
 
     @contextlib.contextmanager

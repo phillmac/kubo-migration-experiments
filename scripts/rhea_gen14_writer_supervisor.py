@@ -18,7 +18,7 @@ import time
 import rhea_multi_sst_checkpoint_controller as c
 from rhea_multi_sst_signed_admission import ANCHOR
 
-RECORD = re.compile(r'(?:pending|closed|unit-(00[1-8])-(?:intent|receipt|failed))\.json')
+RECORD = re.compile(r'(?:pending|closed|unit-([0-9]{3})-(?:intent|receipt|failed))\.json')
 MAX_FRAME = 1 << 20
 
 
@@ -30,11 +30,12 @@ def child_identity(pid):
                                 exe_sha256=sha, boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip()))
 
 
-def supervise(proc, sock, intent, journal, monitor, health, *, clock=time.monotonic):
+def supervise(proc, sock, intent, journal, monitor, health, *, clock=time.monotonic, limits=None):
     """Return the controller writer receipt only after actual exit and closed-file validation."""
     request = intent['request']
     maximum = intent['unit_count']
-    c.require(type(maximum) is int and 1 <= maximum <= 8 and request['maximum_units'] == maximum, 'invalid admitted unit count')
+    ceiling = 8 if limits is None else limits['maximum_units']
+    c.require(type(maximum) is int and 1 <= maximum <= ceiling <= 64 and request['maximum_units'] == maximum, 'invalid admitted unit count')
     records = {}
     identity = final = failure = None
     buffer = bytearray()
@@ -87,7 +88,7 @@ def supervise(proc, sock, intent, journal, monitor, health, *, clock=time.monoto
                 name = msg.get('name')
                 match = RECORD.fullmatch(name) if isinstance(name, str) else None
                 c.require(set(msg) == {'seq','kind','name','value'} and match and name not in records
-                          and (match[1] is None or int(match[1]) <= maximum), 'invalid or repeated writer journal record')
+                          and (match[1] is None or 1 <= int(match[1]) <= maximum), 'invalid or repeated writer journal record')
                 if name == 'pending.json' or name.endswith('-intent.json'):
                     check(True)
                 recovery = name in ('closed.json',) or name.endswith(('-receipt.json', '-failed.json'))
@@ -119,7 +120,7 @@ def supervise(proc, sock, intent, journal, monitor, health, *, clock=time.monoto
     c.require(failure is None, 'final host check failed')
     receipt = dict(report=final, go_files=records, source_process=identity, binary_sha256=identity['exe_sha256'],
                    exit_code=proc.returncode, stopped=True, monitor_complete=True, health=health())
-    c.validate_closed(receipt, intent)
+    c.validate_closed(receipt, intent, limits=limits)
     return receipt
 
 

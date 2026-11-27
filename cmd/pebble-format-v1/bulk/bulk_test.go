@@ -52,7 +52,11 @@ func TestBulkByteCapAndSuccessor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for group := 0; group < 10; group++ {
+	groups := 10
+	if maxBatchUnits > 8 {
+		groups = 22
+	}
+	for group := 0; group < groups; group++ {
 		begin := fmt.Sprintf("range-%02d/", group)
 		for i := 0; i < 100; i++ {
 			if err := db.Set([]byte(fmt.Sprintf("%s%04d", begin, i)), []byte(strings.Repeat("v1", 100)), pebble.NoSync); err != nil {
@@ -93,7 +97,7 @@ func TestBulkByteCapAndSuccessor(t *testing.T) {
 	}
 	fs := stageFS(vfs.Default, dir, stage)
 	plan, err := prepareBatch(fs, dir)
-	if err != nil || plan.Request.Before.Marked != 10 {
+	if err != nil || plan.Request.Before.Marked != groups {
 		t.Fatalf("initial plan %+v %v", plan.Request.Before, err)
 	}
 	plan.Request.Units = maxBatchUnits
@@ -110,7 +114,7 @@ func TestBulkByteCapAndSuccessor(t *testing.T) {
 	next.Request.Units = maxBatchUnits
 	beforeManifest := stagedManifest(t, stage)
 	second, err := runBatch(fs, dir, next.Request, bulkJournal{}, func(uint64) error { return nil })
-	if err != nil || !second.Closed || second.After.Marked != 0 || second.PhysicalCompactions+first.PhysicalCompactions != 10 {
+	if err != nil || !second.Closed || second.After.Marked != 0 || second.PhysicalCompactions+first.PhysicalCompactions != groups {
 		t.Fatalf("successor %v %+v", err, second.After)
 	}
 	if output := os.Getenv("RHEA_BULK_FIXTURE"); output != "" {

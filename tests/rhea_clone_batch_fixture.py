@@ -11,13 +11,16 @@ fixture=json.loads(Path(sys.argv[1]).read_bytes())
 before,bs=bulk.p._decode_tables(base64.b64decode(fixture['before'],validate=True))
 after,ats=bulk.p._decode_tables(base64.b64decode(fixture['after'],validate=True))
 report,hashes=fixture['report'],fixture['hashes']
-new,gone=bulk.validate_batch(report,before,after,bs,ats,hashes)
+limits=bulk.FOUR_GIB_LIMITS if report['request']['maximum_units']==64 else bulk.LIMITS
+new,gone=bulk.validate_batch(report,before,after,bs,ats,hashes,limits=limits)
+if limits is bulk.FOUR_GIB_LIMITS:
+    assert len(report['units'])>8
 assert len(new)==len(gone)==report['physical_compactions']>2
 for field,value in [('input_bytes',report['input_bytes']-1),('units',report['units'][:-1]),('stop_reason','next-unit-budget')]:
     modified=copy.deepcopy(report)
     modified[field]=value
     try:
-        bulk.validate_batch(modified,before,after,bs,ats,hashes)
+        bulk.validate_batch(modified,before,after,bs,ats,hashes,limits=limits)
     except (RuntimeError,ValueError,KeyError):
         continue
     raise AssertionError('accepted altered '+field)

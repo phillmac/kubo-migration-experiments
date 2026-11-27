@@ -1,0 +1,35 @@
+--- a/batch.go
++++ b/batch.go
+@@ -11,8 +11,8 @@
+ 
+ const batchSchema = "rhea-multi-sst-writer-v1"
+ 
+-const maxBatchUnits = 8
+-const maxBatchInputBytes uint64 = 512 << 20
++const maxBatchUnits = 64
++const maxBatchInputBytes uint64 = 4 << 30
+ 
+ type batchRequest struct {
+ 	Units             int    `json:"maximum_units"`
+--- a/budget.go
++++ b/budget.go
+@@ -15,7 +15,7 @@
+ 
+ const (
+ 	maxInputBytes         uint64 = 256 * 1024 * 1024
+-	maxSSTWriteBytes      uint64 = 512 * 1024 * 1024
++	maxSSTWriteBytes      uint64 = 4 * 1024 * 1024 * 1024
+ 	maxMetadataWriteBytes uint64 = 64 * 1024 * 1024
+ 	minCacheFreeBytes     uint64 = 2 * 1024 * 1024 * 1024 * 1024
+ )
+--- a/unit.go
++++ b/unit.go
+@@ -61,7 +61,7 @@
+ }
+ 
+ func validateUnit(r report) error {
+-	if r.AfterFormat != "013" || r.MarkedAfter >= r.MarkedBefore || r.MarkedBefore-r.MarkedAfter > r.Diff.RetiredCount || r.Diff.CreatedCount < 1 || r.Diff.RetiredCount < 1 || r.Diff.CreatedBytes > maxSSTWriteBytes {
++	if r.AfterFormat != "013" || r.MarkedAfter >= r.MarkedBefore || r.MarkedBefore-r.MarkedAfter > r.Diff.RetiredCount || r.Diff.CreatedCount < 1 || r.Diff.RetiredCount < 1 || r.Diff.CreatedBytes > 512<<20 {
+ 		return errors.New("single rewrite did not satisfy format, progress, or output bounds")
+ 	}
+ 	if len(r.Compactions) != 2 || r.Compactions[0].Type != "begin" || r.Compactions[1].Type != "end" || r.Compactions[0].Job != r.Compactions[1].Job || r.Compactions[0].Reason != "rewrite" || r.Compactions[1].Reason != "rewrite" || r.Compactions[1].Error != "" {

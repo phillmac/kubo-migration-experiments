@@ -136,3 +136,68 @@ class PublisherTests(unittest.TestCase):
                 self.assertEqual(mod.credentials(root,state,plans[16]),({},account))
             api.create_policy_version.assert_called_once()
             api.delete_policy_version.assert_not_called()
+
+
+class FourGiBCheckpointTests(unittest.TestCase):
+    def test_historical_certificate_and_signed_profile_transition(self):
+        evidence=REPO/'docs/evidence'
+        past=json.loads((evidence/'rhea-clone-000016-certificate-20261127.json').read_bytes())
+        bulk.predecessor(past,c.digest(past))
+        acceptance=json.loads((evidence/'rhea-clone-resumed-batches-20261127.json').read_bytes())
+        head=acceptance['head']
+        picker=acceptance['independent_readback']['next_read_only_picker']
+        self.assertEqual(head['sha256'],c.digest(past))
+        large=bulk.limits_for(17)
+        self.assertEqual(large['input_bytes'],4<<30)
+        self.assertEqual(bulk.limits_for(16),past['limits'])
+        binding=dict(scope=bulk.SCOPE,target=launcher.TARGET,anchor_sha256=bulk.ANCHOR,generation=17,
+                     previous_checkpoint_sha256=head['sha256'],release_sha256='r',worker_sha256='w',limits=large,
+                     request=dict(maximum_units=64,before=dict(format='013',marked=past['marked_after']),
+                                  initial_plan_sha256=picker['plan_sha256']),first_inputs=picker['inputs'],
+                     production=dict(queue=0,uploadsInProgress=0,erroredFiles=0))
+        launcher.validate(binding,head,17,'r','w')
+        for wrong in (dict(binding,limits=bulk.LIMITS),
+                      dict(binding,request=dict(binding['request'],initial_plan_sha256='0'*64))):
+            with self.assertRaises(RuntimeError):
+                launcher.validate(wrong,head,17,'r','w')
+        altered=dict(past,limits=large)
+        with self.assertRaises(RuntimeError):
+            bulk.predecessor(altered,c.digest(altered))
+
+    def test_aggregate_io_and_backlog_boundaries(self):
+        large=bulk.limits_for(17)
+        io=dict(sst_write_bytes=4<<30,max_sst_write_bytes=4<<30,metadata_write_bytes=0,max_metadata_write_bytes=64<<20)
+        bulk.validate_io(io,large)
+        for changed in (dict(io,sst_write_bytes=(4<<30)+1),dict(io,max_sst_write_bytes=512<<20),
+                        dict(io,sst_write_bytes=True),dict(io,blocked_budget_error='full')):
+            with self.assertRaises(RuntimeError):
+                bulk.validate_io(changed,large)
+        health=dict(cache_bytes=0,free_bytes=2<<40,queue_bytes=5<<30,queue_files=64,errors=0,transferring=0)
+        c.health(health,limits=large)
+        with self.assertRaises(RuntimeError):
+            c.health(dict(health,queue_bytes=(5<<30)+1),limits=large)
+        with self.assertRaises(RuntimeError):
+            c.health(health)
+
+    def test_marker_retry_requires_a_verified_empty_key(self):
+        denied=RuntimeError('denied')
+        denied.operation_name='PutObject'
+        denied.response={'Error':{'Code':'AccessDenied'},'ResponseMetadata':{'HTTPStatusCode':403}}
+        calls=[]
+        def put(reconcile):
+            calls.append(('put',reconcile))
+            if not reconcile:
+                raise denied
+            return 'version'
+        result=runner.publish_after_policy_change(put,lambda:calls.append('checked'),
+            lambda n,delay:calls.append(('denied',n,delay)),wait=lambda delay:calls.append(('wait',delay)))
+        self.assertEqual(result,'version')
+        self.assertEqual(calls,[('put',False),('denied',1,25),('wait',25),'checked',('put',True)])
+        uncertain=Mock(side_effect=TimeoutError())
+        with self.assertRaises(TimeoutError):
+            runner.publish_after_policy_change(uncertain,Mock(),Mock(),wait=Mock())
+        self.assertEqual(uncertain.call_count,1)
+        refused=Mock(side_effect=denied)
+        with self.assertRaisesRegex(RuntimeError,'marker changed'):
+            runner.publish_after_policy_change(refused,Mock(side_effect=RuntimeError('marker changed')),Mock(),wait=Mock())
+        self.assertEqual(refused.call_count,1)

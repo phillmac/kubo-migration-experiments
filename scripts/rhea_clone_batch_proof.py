@@ -11,7 +11,23 @@ require = c.require
 ANCHOR = '7c83ebd87b1194c1624f7455a2e330af686ca9a1421e58e00051ebe5473bd09c'
 SCOPE = 'rhea-disposable-clone-byte-capped-batch-v1'
 LIMITS = dict(v.LIMITS, maximum_units=8, input_bytes=512 << 20)
+FOUR_GIB_LIMITS = dict(LIMITS, maximum_units=64, input_bytes=4 << 30,
+                       sst_output_bytes=4 << 30, backlog_bytes=5 << 30)
 SCHEMA = 3
+
+
+def limits_for(generation):
+    require(type(generation) is int and generation >= 15, 'invalid successor generation')
+    return FOUR_GIB_LIMITS if generation >= 17 else LIMITS
+
+
+def validate_io(io, limits):
+    require(isinstance(io, dict) and not io.get('blocked_budget_error'), 'missing or failed write budget')
+    for kind, cap in [('sst', limits['sst_output_bytes']), ('metadata', limits['metadata_write_bytes'])]:
+        actual = io.get(kind + '_write_bytes')
+        maximum = io.get('max_' + kind + '_write_bytes')
+        require(type(maximum) is int and maximum == cap and type(actual) is int and 0 <= actual <= cap,
+                'cumulative write counter or budget differs')
 
 
 def predecessor(cert, sha):
@@ -23,7 +39,7 @@ def predecessor(cert, sha):
         require(type(cert['generation']) is int and cert['generation'] > 14 and cert['schema'] == SCHEMA
                 and cert['scope'] == SCOPE and cert['anchor_checkpoint_sha256'] == ANCHOR
                 and cert['batch_checkpoint_count'] == cert['generation'] - 13
-                and cert['limits'] == LIMITS and cert['physical_rewrite_total'] == cert['sst_lineage']['rewrite_operations'],
+                and cert['limits'] == limits_for(cert['generation']) and cert['physical_rewrite_total'] == cert['sst_lineage']['rewrite_operations'],
                 'successor certificate ancestry or limits differ')
     p._validate_previous(cert, sha, p._metadata_pins(cert))
 
@@ -90,7 +106,7 @@ def check_opening(cert, latest, deleted):
                 'current version or tombstone differs from certified successor')
 
 
-def validate_batch(report, before, after, bs, ats, hashes):
+def validate_batch(report, before, after, bs, ats, hashes, *, limits=LIMITS):
     """Reconstruct every intermediate MANIFEST state and compare it to actual picker and Pebble events."""
     current = {n:dict(row,name=n) for n,row in before.items()}
     expected_after = {n:dict(row,name=n) for n,row in after.items()}
@@ -99,13 +115,13 @@ def validate_batch(report, before, after, bs, ats, hashes):
     require(report['schema']==v.WRITER_SCHEMA and report['action']=='multi-step' and report['closed'] is True
             and not report.get('error') and not report.get('attempted_unit') and set(request)==
             {'maximum_units','before','initial_plan_sha256'} and type(request['maximum_units']) is int
-            and request['maximum_units']==LIMITS['maximum_units'] and type(report['physical_compactions']) is int
+            and request['maximum_units']==limits['maximum_units'] and type(report['physical_compactions']) is int
             and 1<=len(units)==report['physical_compactions']<=request['maximum_units'], 'unexpected closed batch')
     v._equal_json(request['before'],v._state(current),'admitted prestate differs')
     v._equal_json(report['before'],request['before'],'writer prestate differs')
     require(v._stats(before)['marked_files']==bs['marked_files'] and v._stats(after)['marked_files']==ats['marked_files'],
             'decoded MANIFEST statistics differ')
-    v._io(report['io'])
+    validate_io(report['io'], limits)
     created, retired = v._delta(report['sst_diff'])
     require(set(hashes)==set(created),'closed SST hashes incomplete')
     all_new, all_retired, touched, jobs, events = {}, {}, set(), set(), []
@@ -119,9 +135,14 @@ def validate_batch(report, before, after, bs, ats, hashes):
         require(index or plan['plan_sha256']==request['initial_plan_sha256'], 'first picker differs')
         nxt = {n:row for n,row in current.items() if n not in gone}
         nxt.update({n:dict(row,marked=False) for n,row in new.items()})
-        p._validate_stage(unit,current,nxt,v._stats(current),v._stats(nxt),'013','013',{n:hashes[n] for n in new})
-        v._io(unit['io'])
+        validate_io(unit['io'], limits)
         sst, meta = unit['io']['sst_write_bytes'], unit['io']['metadata_write_bytes']
+        # The pinned single-unit proof checks writes for one compaction. The
+        # native worker reports cumulative counters from one open Pebble DB.
+        unit_io = dict(unit['io'], sst_write_bytes=sst-last_sst, metadata_write_bytes=meta-last_meta,
+                       max_sst_write_bytes=v.MAX_OUTPUT)
+        p._validate_stage(dict(unit, io=unit_io), current, nxt, v._stats(current), v._stats(nxt),
+                          '013', '013', {n: hashes[n] for n in new})
         require(last_sst + sum(row['size'] for row in new.values()) <= sst <= report['io']['sst_write_bytes']
                 and last_meta <= meta <= report['io']['metadata_write_bytes'],'cumulative writes differ')
         begin,end = unit['compactions']
@@ -133,16 +154,16 @@ def validate_batch(report, before, after, bs, ats, hashes):
     require(current==expected_after and created==all_new and retired==all_retired and events==report['compactions'],
             'aggregate MANIFEST or event delta differs')
     v._equal_json(report['after'],v._state(current),'writer final state differs')
-    require(type(report['input_bytes']) is int and report['input_bytes']==input_bytes<=LIMITS['input_bytes']
-            and sum(x['size'] for x in created.values())<=report['io']['sst_write_bytes']<=LIMITS['sst_output_bytes'],
+    require(type(report['input_bytes']) is int and report['input_bytes']==input_bytes<=limits['input_bytes']
+            and sum(x['size'] for x in created.values())<=report['io']['sst_write_bytes']<=limits['sst_output_bytes'],
             'aggregate byte limit exceeded')
     reason = report['stop_reason']
     if reason=='next-unit-budget':
         stop = v._plan(report['stopped_plan'],current)
         require(len(units)<request['maximum_units'] and not touched.intersection(stop['input_files'])
-                and (input_bytes+stop['input_bytes']>LIMITS['input_bytes'] or
-                     stop['input_bytes']>(LIMITS['sst_output_bytes']-report['io']['sst_write_bytes'])//2 or
-                     report['io']['metadata_write_bytes']>=LIMITS['metadata_write_bytes']), 'next unit fits budget')
+                and (input_bytes+stop['input_bytes']>limits['input_bytes'] or
+                     stop['input_bytes']>(limits['sst_output_bytes']-report['io']['sst_write_bytes'])//2 or
+                     report['io']['metadata_write_bytes']>=limits['metadata_write_bytes']), 'next unit fits budget')
     else:
         require(not report.get('stopped_plan') and (reason=='unit-limit' and len(units)==request['maximum_units']
                 or reason=='no-marked-files' and len(units)<request['maximum_units'] and ats['marked_files']==0),
@@ -159,7 +180,7 @@ def finalize(cert, before, final, reopen, logical):
     variable={'mode','remote_generation_verified','proof_pass_id','verified_unix','enumeration_metrics','manifest_view',
               'remote_metadata','marker_history_sha256','sealed_physical_sha256'}
     require({k:w for k,w in before.items() if k not in variable}=={k:w for k,w in final.items() if k not in variable}
-            and final['scope']==SCOPE and final['schema']==SCHEMA and final['limits']==LIMITS
+            and final['scope']==SCOPE and final['schema']==SCHEMA and final['limits']==limits_for(final['generation'])
             and before['manifest_view']==cert['manifest_view'] and final['manifest_view']['active']==final['manifest_marker']
             and final['manifest_view']['retained']==sorted([*cert['manifest_view']['retained'],cert['manifest_marker']]),
             'independent proofs differ')
@@ -172,6 +193,6 @@ def finalize(cert, before, final, reopen, logical):
         pin=final['remote_metadata'][name]
         require(len(body)==pin['size'] and c.raw_sha(body)==pin['sha256'], 'cold metadata differs')
     verify_inspection(reopen,final)
-    v._io(reopen['io'])
+    validate_io(reopen['io'], final['limits'])
     return dict(final,pebble_reopen_verified=True,reopen=reopen,before_markers_proof_sha256=c.digest(before),
                 final_remote_proof_sha256=c.digest(final))

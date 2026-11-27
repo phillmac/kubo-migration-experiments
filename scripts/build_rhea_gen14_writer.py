@@ -19,13 +19,13 @@ def assemble(inputs, work, pebble):
     return command
 
 
-def apply_bulk_patch(package):
-    patch = pilot.ROOT / 'cmd/pebble-format-v1/bulk/writer.patch'
+def apply_bulk_patch(package, name='writer.patch'):
+    patch = pilot.ROOT / 'cmd/pebble-format-v1/bulk' / name
     subprocess.run(['/usr/bin/patch', '--batch', '--fuzz=0', '--no-backup-if-mismatch',
                     '-p1', '-i', str(patch)], cwd=package, check=True)
 
 
-def build(go, cache, output, *, bulk=False):
+def build(go, cache, output, *, bulk=False, four_gib=False):
     inputs, _ = pilot.verify_sources()
     sums = pilot.module_sums(inputs[str(pilot.PILOT / 'deps/go.sum')])
     with tempfile.TemporaryDirectory(prefix='rhea-gen14-plan-') as temp:
@@ -44,8 +44,10 @@ def build(go, cache, output, *, bulk=False):
             shutil.copyfile(pilot.ROOT / 'cmd/pebble-format-v1/gen14' / name, command / 'multistep' / name)
         subprocess.run([go, 'test', '-v', '-mod=readonly', '-p=2', '-count=1', '-timeout=240s',
                         '-run=^TestGeneration14', './multistep'], cwd=command, env=env, umask=0o077, check=True)
-        if bulk:
+        if bulk or four_gib:
             apply_bulk_patch(command / 'gen14')
+            if four_gib:
+                apply_bulk_patch(command / 'gen14', 'four-gib.patch')
             # Exercise the exact production package on a real multi-file Pebble fixture.
             fixture = command / 'gen14' / 'bulk_test.go'
             shutil.copyfile(pilot.ROOT / 'cmd/pebble-format-v1/bulk/bulk_test.go', fixture)
@@ -66,5 +68,6 @@ if __name__ == '__main__':
     for flag in ('go', 'module-cache', 'output'):
         parser.add_argument('--' + flag, required=True, type=Path)
     parser.add_argument('--bulk', action='store_true', help='build the resumable byte-capped clone worker')
+    parser.add_argument('--four-gib', action='store_true', help='build the 4 GiB clone worker')
     args = parser.parse_args()
-    build(args.go.resolve(strict=True), args.module_cache.resolve(strict=True), args.output, bulk=args.bulk)
+    build(args.go.resolve(strict=True), args.module_cache.resolve(strict=True), args.output, bulk=args.bulk, four_gib=args.four_gib)

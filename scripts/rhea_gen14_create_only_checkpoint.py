@@ -156,7 +156,8 @@ def verify(client, opening, cert, old, new, writer, hashes, published=None, *, p
     successor = previous_sha != v.GENERATION13_SHA256
     if successor:
         import rhea_clone_batch_proof as bulk
-        created, retired = bulk.validate_batch(writer, before, after, bs, ats, hashes)
+        limits = bulk.limits_for(cert['generation'] + 1)
+        created, retired = bulk.validate_batch(writer, before, after, bs, ats, hashes, limits=limits)
     else:
         created, retired = v.validate_batch(writer, before, after, bs, ats, '013', '013', hashes)
         require(writer['physical_compactions'] == len(writer['units']) == 2, 'expected two pilot rewrites')
@@ -201,7 +202,7 @@ def verify(client, opening, cert, old, new, writer, hashes, published=None, *, p
                 generation=cert['generation']+1, batch_checkpoint_count=cert.get('batch_checkpoint_count',0)+1,
                 anchor_checkpoint_sha256=bulk.ANCHOR if successor else v.GENERATION13_SHA256, physical_compactions=count,
                 physical_rewrite_total=lineage['rewrite_operations'], unit_evidence=writer['units'],
-                limits=dict(bulk.LIMITS if successor else v.LIMITS), historical_verifier_sha256=v.HISTORICAL_VERIFIER_SHA256,
+                limits=dict(limits if successor else v.LIMITS), historical_verifier_sha256=v.HISTORICAL_VERIFIER_SHA256,
                 scanner_sha256=p.SCANNER_SHA256, enumeration_workers=4, proof_pass_id=secrets.token_hex(16),
                 bucket=v.BUCKET, prefix='rhea/', mode='final' if published else 'before-markers', action=writer['action'],
                 verified_unix=time.time(), previous_checkpoint_sha256=previous_sha, go_report_sha256=c.digest(writer),

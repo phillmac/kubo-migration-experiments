@@ -368,8 +368,9 @@ def process_tuple(value):
     return value
 
 
-def health(value, *, drained=False):
-    limits = verifier.LIMITS
+def health(value, *, drained=False, limits=None):
+    if limits is None:
+        limits = verifier.LIMITS
     for key in ('cache_bytes', 'free_bytes', 'queue_bytes', 'queue_files', 'errors', 'transferring'):
         require(type(value.get(key)) is int and value[key] >= 0, 'invalid queue/resource evidence')
     require(value['cache_bytes'] <= limits['cache_bytes']
@@ -436,7 +437,7 @@ def validate_intent(intent):
             and HEX.fullmatch(request['initial_plan_sha256']), 'batch request/predecessor mismatch')
 
 
-def validate_closed(writer, intent):
+def validate_closed(writer, intent, *, limits=None):
     report = writer['report']
     process_tuple(writer['source_process'])
     require(writer['source_process']['exe_sha256'] == writer['binary_sha256'] == intent['go_binary_sha256']
@@ -444,7 +445,7 @@ def validate_closed(writer, intent):
             and writer['exit_code'] == 0 and type(writer['exit_code']) is int
             and writer.get('stopped') is True and writer.get('monitor_complete') is True,
             'writer identity/exit/continuous monitor missing')
-    health(writer['health'])
+    health(writer['health'], limits=limits)
     require(report.get('closed') is True and not report.get('error') and not report.get('attempted_unit')
             and report.get('stop_reason') in ('unit-limit', 'no-marked-files', 'next-unit-budget')
             and digest(report.get('request')) == digest(intent['request'])

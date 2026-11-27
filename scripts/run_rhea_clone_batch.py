@@ -16,6 +16,7 @@ TARGET='rhea-pebble-lab-20261101-39037c6f01/rhea/pebbleds/'
 ANCHOR='7c83ebd87b1194c1624f7455a2e330af686ca9a1421e58e00051ebe5473bd09c'
 SCOPE='rhea-disposable-clone-byte-capped-batch-v1'
 CTL='/root/.local/share/rhea-clone-batch-runner-v1/scripts/rhea_clone_batch_runner.py'
+LARGE_CTL='/root/.local/share/rhea-clone-batch-runner-4g-v1/scripts/rhea_clone_batch_runner.py'
 KEYS=Path.home()/'.local/share/rhea-gen14-handoff-signing-20261127'
 RELEASE_PUB='1e795ba5e4727de5c5ad7d3500afeb0c0bc5bb4f0510195a1333b18ed1f13e6f'
 ADMISSION_PUB='8ae285df7e903cad9b2806f1f96d53060b4d968863a2436d062a8a45ef7a9102'
@@ -59,14 +60,20 @@ def validate(binding,head,gen,release,worker):
             and binding['release_sha256']==release and binding['worker_sha256']==worker,'requested generation, signer or target differs')
     limits=dict(maximum_units=8,input_bytes=512<<20,sst_output_bytes=512<<20,metadata_write_bytes=64<<20,
                 cache_bytes=96<<30,minimum_free_bytes=2<<40,backlog_bytes=768<<20,backlog_files=256)
+    if gen >= 17:
+        limits.update(maximum_units=64,input_bytes=4<<30,sst_output_bytes=4<<30,backlog_bytes=5<<30)
     req=binding['request']
-    require(binding['limits']==limits and req['maximum_units']==8 and req['before']['format']=='013'
+    require(binding['limits']==limits and req['maximum_units']==limits['maximum_units'] and req['before']['format']=='013'
             and req['before']['marked']>0 and binding['first_inputs'] and binding['production']['queue']==0
             and binding['production']['uploadsInProgress']==0 and binding['production']['erroredFiles']==0,
             'unexpected byte limits, picker state or production activity')
     if gen==15:
         require(head['sha256']==ANCHOR and req['initial_plan_sha256']=='3938d034fbbd929ff5c9095015fcaad668b1f4ee832ef53d4d9928dceb6fc210',
                 'first batch differs from the independently retained next picker')
+    if gen == 17:
+        require(head['sha256']=='7fb1712a6d08b8a9744472a3e9ee8d7bcda8dfcf0fcacfd1d4f23da54b26f445'
+                and req['initial_plan_sha256']=='4fd51080c5a17e199061dd88b37104b1a31988881d793aa92a94d5a9f8e9b08c',
+                'large batch differs from the certified generation-16 picker')
 
 
 def main():
@@ -76,7 +83,7 @@ def main():
     parser.add_argument('--resume',action='store_true',help='reconcile closed output and finish certification')
     args=parser.parse_args()
     os.umask(0o077)
-    cmd=['/usr/bin/python3','-I','-B',CTL]
+    cmd=['/usr/bin/python3','-I','-B',LARGE_CTL if args.generation>=17 else CTL]
     with tempfile.TemporaryDirectory(dir=KEYS,prefix='batch-admission.') as temp:
         tmp=Path(temp)
         sha,worker=verify_release(args.release,tmp)
