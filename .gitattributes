@@ -1,0 +1,2 @@
+# Unified diff context lines carry a leading space before the original Go indentation.
+cmd/pebble-format-v1/bulk/writer.patch whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
