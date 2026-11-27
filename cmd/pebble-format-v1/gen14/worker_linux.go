@@ -133,7 +133,7 @@ func workerMount(rows string, id uint64) error {
 	return nil
 }
 
-func worker() error {
+func worker(inspectOnly bool) error {
 	peer, err := unix.GetsockoptUcred(0, unix.SOL_SOCKET, unix.SO_PEERCRED)
 	if err != nil || peer.Uid != 0 || int(peer.Pid) != os.Getppid() || os.Geteuid() == 0 {
 		return errors.New("dedicated unprivileged child of the root controller required")
@@ -167,5 +167,16 @@ func worker() error {
 		return fmt.Errorf("controller socket: %w", err)
 	}
 	defer conn.Close()
-	return serveBatch(conn, vfs.Default, writerDB)
+	fs, err := stagedWorkerFS()
+	if err != nil {
+		return err
+	}
+	if inspectOnly {
+		report, err := inspectClosed(fs, writerDB)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(report)
+	}
+	return serveBatch(conn, fs, writerDB)
 }

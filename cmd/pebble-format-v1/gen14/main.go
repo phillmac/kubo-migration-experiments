@@ -14,11 +14,11 @@ const labMount = "/mnt/rhea-pebble-lab-reader-20261102"
 const labDB = labMount + "/pebbleds"
 
 func run() error {
-	if len(os.Args) == 2 && os.Args[1] == "worker" {
-		return worker()
+	if len(os.Args) == 2 && (os.Args[1] == "worker" || os.Args[1] == "inspect-staged") {
+		return worker(os.Args[1] == "inspect-staged")
 	}
-	if len(os.Args) != 2 || os.Args[1] != "plan" {
-		return errors.New("usage: rhea-gen14 plan | worker")
+	if len(os.Args) != 2 || (os.Args[1] != "plan" && os.Args[1] != "inspect") {
+		return errors.New("usage: rhea-gen14 plan | inspect | inspect-staged | worker")
 	}
 	path, err := filepath.EvalSymlinks(labDB)
 	if err != nil || path != labDB {
@@ -27,6 +27,13 @@ func run() error {
 	fs, _, err := inspectionFS(labDB, true)
 	if err != nil {
 		return err
+	}
+	if os.Args[1] == "inspect" {
+		report, err := inspectClosed(fs, labDB)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(report)
 	}
 	result, err := prepareBatch(fs, labDB)
 	if err != nil {

@@ -14,7 +14,7 @@ def assemble(inputs, work, pebble):
     package.mkdir()
     for name in ('budget.go', 'state.go', 'unit.go', 'journal.go', 'batch.go'):
         (package / name).write_bytes(inputs['cmd/pebble-format-v1/multistep/' + name])
-    for directory, name in [('inspect', 'readonly_linux.go'), ('gen14', 'main.go'), ('gen14', 'prepare.go'), ('gen14', 'worker_linux.go')]:
+    for directory, name in [('inspect', 'readonly_linux.go'), ('gen14', 'main.go'), ('gen14', 'prepare.go'), ('gen14', 'worker_linux.go'), ('gen14', 'staged_fs.go')]:
         (package / name).write_bytes(pilot.read_regular(pilot.ROOT / 'cmd/pebble-format-v1' / directory / name))
     return command
 
@@ -34,7 +34,7 @@ def build(go, cache, output):
         env['RHEA_GEN14_DRIVER'] = str(pilot.ROOT / 'tests/rhea_gen14_socket_fixture.py')
         # Test the same transport and picker against the pilot's real on-disk
         # fixture. Test-only DB selectors never enter the release executable.
-        for name in ('worker_linux.go', 'prepare.go', 'supervisor_test.go', 'marker_transition_test.go'):
+        for name in ('worker_linux.go', 'prepare.go', 'staged_fs.go', 'supervisor_test.go', 'marker_transition_test.go', 'staged_fs_test.go'):
             shutil.copyfile(pilot.ROOT / 'cmd/pebble-format-v1/gen14' / name, command / 'multistep' / name)
         subprocess.run([go, 'test', '-v', '-mod=readonly', '-p=2', '-count=1', '-timeout=240s',
                         '-run=^TestGeneration14', './multistep'], cwd=command, env=env, umask=0o077, check=True)
