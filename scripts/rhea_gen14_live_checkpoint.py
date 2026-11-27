@@ -75,15 +75,16 @@ def decode_batch(cert,old,new,report,hashes):
     return info
 
 
-def hash_files(report):
+def hash_files(report, payloads=None):
+    payloads = PAYLOADS if payloads is None else payloads
     result = {}
     for row in report['sst_diff']['created']:
         name = row['name']
         require(proof.p.base.SST_NAME.fullmatch(name) and name not in result, 'invalid output name')
-        path = PAYLOADS/name
+        path = payloads/name
         require(path.is_file() and not path.is_symlink() and path.stat().st_size==row['size'], 'closed payload differs')
         result[name] = dict(sha256=h.reopen.digest_file(path),size=row['size'])
-    require({p.name for p in PAYLOADS.iterdir()}==result.keys(), 'unexpected closed payload')
+    require({p.name for p in payloads.iterdir()}==result.keys(), 'unexpected closed payload')
     return result
 
 
@@ -161,17 +162,24 @@ def history(admin, name):
     return [x for x in result.get('Versions',[]) if x['Key']==args['Prefix']]
 
 
-def conditional_upload(admin, signer, account, role, path, expected):
+def conditional_upload(admin, signer, account, role, path, expected, *, state=None, reconcile_missing=False):
+    state = STATE if state is None else state
     name = path.name
     require((role=='publisher')==bool(proof.markers.MANIFEST.fullmatch(name)) and
             (role=='publisher' or not name.startswith('marker.')), 'upload credential class differs')
-    intent = STATE/('put-'+name+'.intent.json')
-    done = STATE/('put-'+name+'.receipt.json')
+    intent = state/('put-'+name+'.intent.json')
+    done = state/('put-'+name+'.receipt.json')
     record = dict(role=role,bucket=iam.BUCKET,name=name,size=expected['size'],sha256=expected['sha256'])
     versions = history(admin,name)
-    if not intent.exists():
+    fresh_intent = not intent.exists()
+    if fresh_intent:
         require(not versions, 'object name already used: '+name)
         prep.save(intent,record)
+    else:
+        require(host.read(intent)==record, 'prior exact PUT intent differs')
+    if fresh_intent or (reconcile_missing and not versions and not done.exists()):
+        if not fresh_intent:
+            prep.save(state/('put-'+name+'.reconciled-empty.json'),record)
         require(path.stat().st_size==expected['size'] and h.reopen.digest_file(path)==expected['sha256'],
                 'local upload payload changed')
         with path.open('rb') as body:
@@ -181,8 +189,6 @@ def conditional_upload(admin, signer, account, role, path, expected):
         require(host.r.live.opaque(result.get('VersionId')), 'PUT has no version')
         versions = history(admin,name)
         require(len(versions)==1 and versions[0]['VersionId']==result['VersionId'], 'PUT version not visible')
-    else:
-        require(host.read(intent)==record, 'prior exact PUT intent differs')
     require(len(versions)==1 and versions[0]['IsLatest'] is True, 'unresolved PUT intent or conflicting versions: '+name)
     pin = proof.p._hash_new_sst(admin,name,versions[0],expected)
     prep.save(done,pin)

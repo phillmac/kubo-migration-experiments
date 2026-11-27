@@ -18,7 +18,7 @@ import time
 import rhea_multi_sst_checkpoint_controller as c
 from rhea_multi_sst_signed_admission import ANCHOR
 
-RECORD = re.compile(r'(?:pending|closed|unit-00[12]-(?:intent|receipt|failed))\.json')
+RECORD = re.compile(r'(?:pending|closed|unit-(00[1-8])-(?:intent|receipt|failed))\.json')
 MAX_FRAME = 1 << 20
 
 
@@ -33,6 +33,8 @@ def child_identity(pid):
 def supervise(proc, sock, intent, journal, monitor, health, *, clock=time.monotonic):
     """Return the controller writer receipt only after actual exit and closed-file validation."""
     request = intent['request']
+    maximum = intent['unit_count']
+    c.require(type(maximum) is int and 1 <= maximum <= 8 and request['maximum_units'] == maximum, 'invalid admitted unit count')
     records = {}
     identity = final = failure = None
     buffer = bytearray()
@@ -83,8 +85,9 @@ def supervise(proc, sock, intent, journal, monitor, health, *, clock=time.monoto
                 ack['allow'] = failure is None
             elif kind == 'record':
                 name = msg.get('name')
-                c.require(set(msg) == {'seq','kind','name','value'} and isinstance(name, str)
-                          and RECORD.fullmatch(name) and name not in records, 'invalid or repeated writer journal record')
+                match = RECORD.fullmatch(name) if isinstance(name, str) else None
+                c.require(set(msg) == {'seq','kind','name','value'} and match and name not in records
+                          and (match[1] is None or int(match[1]) <= maximum), 'invalid or repeated writer journal record')
                 if name == 'pending.json' or name.endswith('-intent.json'):
                     check(True)
                 recovery = name in ('closed.json',) or name.endswith(('-receipt.json', '-failed.json'))

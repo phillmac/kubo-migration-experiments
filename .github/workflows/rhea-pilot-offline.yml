@@ -77,6 +77,11 @@ jobs:
           python3 -B scripts/build_rhea_gen14_writer.py \
             --go "$(command -v go)" --module-cache "$RUNNER_TEMP/pilot-modules" \
             --output "$RUNNER_TEMP/rhea-gen14"
+      - name: Verify larger batches, byte stops and resumed native checkpoints
+        run: |
+          python3 -B scripts/build_rhea_gen14_writer.py --bulk \
+            --go "$(command -v go)" --module-cache "$RUNNER_TEMP/pilot-modules" \
+            --output "$RUNNER_TEMP/rhea-clone-batch"
       - name: Retain offline evidence for independent review
         uses: actions/upload-artifact@v4
         with:

@@ -26,20 +26,20 @@ def writer_lock():
         yield
 
 
-def release():
-    raw = a.protected_read(INSTALL / 'release.json')
-    a.verify_detached(raw, a.protected_read(INSTALL / 'release.sig'), a.protected_read(h.TRANSACTION_INSTALL / 'release.pub'),
+def release(install=INSTALL, scope=SCOPE, required=()):
+    raw = a.protected_read(install / 'release.json')
+    a.verify_detached(raw, a.protected_read(install / 'release.sig'), a.protected_read(h.TRANSACTION_INSTALL / 'release.pub'),
                       domain=a.DEPLOYMENT_DOMAIN, key_sha256=h.RELEASE_KEY)
     manifest = a.parse(raw)
-    require(set(manifest) == {'scope','files'} and manifest['scope'] == SCOPE and
+    require(set(manifest) == {'scope','files'} and manifest['scope'] == scope and
             {'worker','scripts/rhea_gen14_checkpoint_prepare.py','scripts/rhea_gen14_staged_host.py',
-             'scripts/rhea_gen14_create_only_checkpoint.py'} | set(c.SOURCE_PINS) <= manifest['files'].keys(),
+             'scripts/rhea_gen14_create_only_checkpoint.py'} | set(c.SOURCE_PINS) | set(required) <= manifest['files'].keys(),
             'release omits a controller dependency')
     for name, sha in manifest['files'].items():
-        path = INSTALL / name
+        path = install / name
         require(re.fullmatch(r'[A-Za-z0-9_./-]+', name) and not name.startswith('/') and '..' not in path.parts
                 and path.is_file() and not path.is_symlink() and h.reopen.digest_file(path) == sha, 'release differs: '+name)
-    require({p.relative_to(INSTALL).as_posix() for p in (INSTALL/'scripts').glob('*.py')} <= manifest['files'].keys(),
+    require({p.relative_to(install).as_posix() for p in (install/'scripts').glob('*.py')} <= manifest['files'].keys(),
             'unlisted Python module')
     return c.raw_sha(raw), manifest['files']['worker']
 
