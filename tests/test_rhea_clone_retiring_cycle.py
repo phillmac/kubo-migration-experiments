@@ -26,7 +26,8 @@ class RetirementCycleTests(unittest.TestCase):
                 cycle.has_successor(head, self.intent)
 
     def test_waits_until_the_checkpoint_unit_finishes(self):
-        with patch.object(cycle.r.host, 'read', side_effect=[self.parent, self.head, self.head, self.head]), \
+        with tempfile.TemporaryDirectory() as tmp, patch.object(cycle.r, 'ROOT', Path(tmp)), \
+                patch.object(cycle.r.host, 'read', side_effect=[self.parent, self.head, self.head, self.head]), \
                 patch.object(cycle.r.h, 'output', side_effect=['deactivating', 'inactive']), \
                 patch.object(cycle.time, 'sleep') as sleep:
             cycle.observe_successor(self.intent)
