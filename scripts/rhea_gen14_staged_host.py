@@ -28,22 +28,47 @@ DATA = Path('/data/rhea-gen14-checkpoint-000014-warm-20261127')
 BATCH_INSTALL = Path('/root/.local/share/rhea-clone-batch-runner-v1')
 FOUR_GIB_INSTALL = Path('/root/.local/share/rhea-clone-batch-runner-4g-v1')
 BATCH_DATA = Path('/data/rhea-pebble-clone-batches')
+BATCH_JOURNAL = Path('/root/.local/share/rhea-pebble-clone-batches')
+TRIAL_RECEIPT_BYTES = 32 << 20
+BATCH_PROOF_BYTES = 128 << 20
+BATCH_PROOFS = {'before-publication.json', 'final-remote.json', 'checkpoint.json'}
 UNIT = 'rhea-gen14-full-clone-staged-writer-20261127.service'
 PROBE = 'rhea-gen14-full-clone-staged-inspect-20261127.service'
 DB = h.DB
 LOCAL = '/run/rhea-gen14-two-sst-metadata'
 
 
+def receipt_limit(path):
+    # Only numbered batch proofs carry the cumulative table history.
+    if (path.name in BATCH_PROOFS and path.parent.parent == BATCH_JOURNAL
+            and re.fullmatch(r'[0-9]{6}', path.parent.name)):
+        return BATCH_PROOF_BYTES
+    return TRIAL_RECEIPT_BYTES
+
+
 def put(path, obj):
-    r.private_write(path, c.canonical(obj))
+    raw = c.canonical(obj)
+    require(len(raw) <= receipt_limit(path), 'trial receipt exceeds size limit: ' + path.name)
+    r.private_write(path, raw)
 
 
 def read(path):
-    with path.open('rb') as stream:
-        st = os.fstat(stream.fileno())
-        require(stat.S_ISREG(st.st_mode) and st.st_uid == 0 and stat.S_IMODE(st.st_mode) == 0o600
-                and st.st_nlink == 1 and st.st_size <= 32 << 20, 'invalid trial receipt')
-        return c.parse(stream.read())
+    limit = receipt_limit(path)
+    parent = iam.p.directory(path.parent)
+    try:
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+    finally:
+        os.close(parent)
+    with os.fdopen(fd, 'rb') as stream:
+        before = os.fstat(fd)
+        require(stat.S_ISREG(before.st_mode) and before.st_uid == iam.p.OWNER
+                and stat.S_IMODE(before.st_mode) == 0o600 and before.st_nlink == 1
+                and before.st_size <= limit, 'invalid trial receipt')
+        raw = stream.read(before.st_size + 1)
+        after = os.fstat(fd)
+        require(len(raw) == before.st_size == after.st_size and before.st_ctime_ns == after.st_ctime_ns,
+                'trial receipt changed while reading')
+    return c.parse(raw)
 
 
 def mkdir(path):

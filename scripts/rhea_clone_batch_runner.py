@@ -25,7 +25,7 @@ import rhea_gen14_live_checkpoint as pilot
 
 prep,host,h,iam,c,a,proof = pilot.prep,pilot.host,pilot.h,pilot.iam,pilot.c,pilot.a,pilot.proof
 require=c.require
-ROOT=Path('/root/.local/share/rhea-pebble-clone-batches')
+ROOT=host.BATCH_JOURNAL
 INSTALL=host.BATCH_INSTALL if Path(__file__).parent.parent==host.BATCH_INSTALL else host.FOUR_GIB_INSTALL
 ANCHOR_FILE=host.STATE/'checkpoint-000014.json'
 REQUIRED={'scripts/rhea_clone_batch_runner.py','scripts/rhea_clone_batch_proof.py','scripts/rhea_clone_batch_publisher.py'}
