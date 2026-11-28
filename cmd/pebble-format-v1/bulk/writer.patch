@@ -1,0 +1,64 @@
+--- a/batch.go
++++ b/batch.go
+@@ -10,6 +10,9 @@
+ )
+ 
+ const batchSchema = "rhea-multi-sst-writer-v1"
++
++const maxBatchUnits = 8
++const maxBatchInputBytes uint64 = 512 << 20
+ 
+ type batchRequest struct {
+ 	Units             int    `json:"maximum_units"`
+@@ -46,7 +49,7 @@
+ // freeCheck must be a continuously enforced monitor in any future live adapter;
+ // the offline fixture deliberately supplies a no-op. No live adapter is exposed.
+ func runBatch(raw vfs.FS, dir string, req batchRequest, sink evidenceSink, freeCheck func(uint64) error) (result batchReport, err error) {
+-	return runBatchWithInputCap(raw, dir, req, sink, freeCheck, maxInputBytes)
++	return runBatchWithInputCap(raw, dir, req, sink, freeCheck, maxBatchInputBytes)
+ }
+ 
+ // Only tests lower this cap to exercise real picker refusal without a large
+@@ -105,8 +108,8 @@
+ 			}
+ 		}
+ 	}()
+-	if inputCap == 0 || inputCap > maxInputBytes || sink == nil || freeCheck == nil || req.Units < 1 || req.Units > 2 || req.Before.Format != "013" || req.Before.Marked < 1 || req.Before.Files < 1 || req.Before.Bytes == 0 || !shaPattern.MatchString(req.Before.InventorySHA256) || !shaPattern.MatchString(req.InitialPlanSHA256) {
+-		return result, errors.New("explicit exact format-013 state, first plan and one/two-unit admission required")
++	if inputCap == 0 || inputCap > maxBatchInputBytes || sink == nil || freeCheck == nil || req.Units < 1 || req.Units > maxBatchUnits || req.Before.Format != "013" || req.Before.Marked < 1 || req.Before.Files < 1 || req.Before.Bytes == 0 || !shaPattern.MatchString(req.Before.InventorySHA256) || !shaPattern.MatchString(req.InitialPlanSHA256) {
++		return result, errors.New("explicit exact format-013 state, first plan and bounded unit admission required")
+ 	}
+ 	// Digest and exact prestate checked before writable Open can create metadata.
+ 	ro, openErr := pebble.Open(dir, options(guard, true, nil))
+@@ -207,7 +210,7 @@
+ 		mu.Unlock()
+ 		u := report{Action: "step", PickerPlan: &plan, ExpectedPlanSHA256: plan.PlanSHA256}
+ 		result.InputBytes += candidate.InputBytes
+-		_, rewriteErr := db.LabRewriteOneMarkedFile(inputCap-result.InputBytes+candidate.InputBytes, candidate.PlanSHA256)
++		_, rewriteErr := db.LabRewriteOneMarkedFile(min(maxInputBytes, inputCap-result.InputBytes+candidate.InputBytes), candidate.PlanSHA256)
+ 		after, readErr := readState(db)
+ 		u.states(current, after)
+ 		u.Diff, err = difference(current.Tables, after.Tables)
+--- a/worker_linux.go
++++ b/worker_linux.go
+@@ -99,8 +99,8 @@
+ 	if err != nil {
+ 		return err
+ 	}
+-	if ack.Request.Units != 2 {
+-		return errors.New("generation 14 requires a two-unit request")
++	if ack.Request.Units < 1 || ack.Request.Units > maxBatchUnits {
++		return errors.New("batch unit limit outside signed worker bounds")
+ 	}
+ 	report, err := runBatch(fs, dir, *ack.Request, link, link.monitor)
+ 	_, finish := link.exchange("finished", "", report)
+--- a/main.go
++++ b/main.go
+@@ -39,6 +39,7 @@
+ 	if err != nil {
+ 		return err
+ 	}
++	result.Request.Units = maxBatchUnits
+ 	return json.NewEncoder(os.Stdout).Encode(result)
+ }
+ 

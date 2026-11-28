@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - 'cmd/pebble-format-v1/pilot/**'
+      - 'cmd/pebble-format-v1/inspect/**'
+      - 'cmd/pebble-format-v1/gen14/**'
+      - 'scripts/build_rhea_gen14_writer.py'
+      - 'scripts/rhea_gen14_writer_supervisor.py'
+      - 'tests/rhea_gen14_socket_fixture.py'
       - 'scripts/build_rhea_pilot_offline.py'
       - 'tests/test_build_rhea_pilot_offline.py'
       - '.github/workflows/rhea-pilot-offline.yml'
@@ -46,6 +51,16 @@ jobs:
           export GOPATH="$RUNNER_TEMP/pilot-gopath" GOMODCACHE="$RUNNER_TEMP/pilot-modules"
           export GOCACHE="$RUNNER_TEMP/pilot-prime-build-cache"
           go mod download
+      - name: Test the clone inspector against the pinned Pebble version
+        shell: bash
+        run: |
+          set -euo pipefail
+          prime="$RUNNER_TEMP/pilot-prime"
+          cp -R cmd/pebble-format-v1/inspect "$prime/inspect"
+          cd "$prime"
+          export GOENV=off GOWORK=off GOTOOLCHAIN=local GOFLAGS= GOPROXY=off GOSUMDB=off
+          export GOMODCACHE="$RUNNER_TEMP/pilot-modules" GOCACHE="$RUNNER_TEMP/pilot-prime-build-cache"
+          go test -mod=readonly -race -count=1 ./inspect
       - name: Offline verified assembly, disk subprocesses, race, vet, ABI and MANIFEST parity
         shell: bash
         run: |
@@ -57,6 +72,16 @@ jobs:
             --output "$RUNNER_TEMP/pilot-NON-DEPLOYABLE"
           git diff --exit-code
           git diff --check
+      - name: Check generation-14 controller against real Pebble child processes
+        run: |
+          python3 -B scripts/build_rhea_gen14_writer.py \
+            --go "$(command -v go)" --module-cache "$RUNNER_TEMP/pilot-modules" \
+            --output "$RUNNER_TEMP/rhea-gen14"
+      - name: Verify larger batches, byte stops and resumed native checkpoints
+        run: |
+          python3 -B scripts/build_rhea_gen14_writer.py --bulk \
+            --go "$(command -v go)" --module-cache "$RUNNER_TEMP/pilot-modules" \
+            --output "$RUNNER_TEMP/rhea-clone-batch"
       - name: Retain offline evidence for independent review
         uses: actions/upload-artifact@v4
         with:

@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "prepared": {
+    "phase": "prepared",
+    "proposal": {
+      "first_inputs": [
+        {
+          "level": 6,
+          "name": "46893056.sst",
+          "number": 46893056,
+          "size": 67283209
+        }
+      ],
+      "first_picker_plan": {
+        "candidate_sha256": "9aa4737550d67f384fea97f5d2f2e48407922a64bd5a41c36a8a1bb5a07d5d24",
+        "input_bytes": 67283209,
+        "input_files": [
+          "46893056.sst"
+        ],
+        "input_level": 6,
+        "output_level": 6,
+        "plan_sha256": "346d5fda046edc8d187e4454de7c11bb5c672f930fe27932f0dc63d51e669934"
+      },
+      "request": {
+        "before": {
+          "bytes": 7786594079552,
+          "files": 93697,
+          "format": "013",
+          "inventory_sha256": "78ac0bf93a22dc0e0606c6a2c00f59e2381207ec5e63b4cdf06bdf2f61f11f49",
+          "marked": 93686
+        },
+        "initial_plan_sha256": "346d5fda046edc8d187e4454de7c11bb5c672f930fe27932f0dc63d51e669934",
+        "maximum_units": 2
+      }
+    },
+    "record_sha256": "a54deaacf378bc8e14d2a95f349bec6bddc0cc3ac59ea8f13785bf1d77786a8b"
+  },
+  "prepared_binary_sha256": "fac0d0971fa93ccb33db4e02937e777a8395b0ee95644201adedb1d660451347",
+  "scope": "Full disposable clone observed through a kernel-enforced read-only mount. The monitored writer was exercised on local Pebble disk fixtures on Rhea.",
+  "retained_path": "/root/.local/share/rhea-gen14-two-sst-20261125/prepared-writer-request.json",
+  "repeat_preparation_identical": true,
+  "fixture": {
+    "go": "go1.24.13",
+    "log_sha256": "0962a436798dc6b5cd75044d988565399a7b8be1a0f4d27e1750687b0ac17850",
+    "complete": {
+      "verified_physical_rewrites": 2,
+      "marked_remaining": 0
+    },
+    "revoke_second": {
+      "marked_remaining": 1,
+      "second_intent": true,
+      "second_receipt": false,
+      "close_observed": true
+    },
+    "stale_request": {
+      "marked_remaining": 2,
+      "pending_created": false
+    },
+    "disconnect_after_second_intent": {
+      "marked_remaining": 1,
+      "second_receipt": false,
+      "close_observed": false
+    }
+  },
+  "post_run": {
+    "checked_at": "2026-11-26T22:47:33.652773+00:00",
+    "prepared_sha256": "a54deaacf378bc8e14d2a95f349bec6bddc0cc3ac59ea8f13785bf1d77786a8b",
+    "state_sha256": "c1563e322c496ca479c26501ef3f8ae2b71091565ee8fa227e24b4292f2cd90c",
+    "pending": null,
+    "generation": 13,
+    "rewrites": 9,
+    "writer_lock_released": true,
+    "services": {
+      "rhea-pebble-lab-full-clone-20261102": "inactive",
+      "rhea-pebble-lab-reader-fast-mount-20261102": "active",
+      "rhea-ipfs-wasabi-kubo": "inactive",
+      "rhea-broken-pin-walk-20261026": "inactive"
+    }
+  },
+  "trial_started": false,
+  "source_commit": "5e4210ff47a9b3f391ef7b5172ef2a804496b673",
+  "clone_writer_handshake": {
+    "allow": false,
+    "binary_sha256": "fac0d0971fa93ccb33db4e02937e777a8395b0ee95644201adedb1d660451347",
+    "cache_file_count": 2,
+    "certificate_sha256": "2d26a443de2cb899b3909cc53a815b670f61570022d69a576c73b0ed395b2774",
+    "child_exit": 2,
+    "hello": {
+      "kind": "ready",
+      "seq": 1
+    },
+    "kernel_mount": "rw",
+    "policy_verified": "VERIFIED",
+    "request_sent": false,
+    "result": "PASS",
+    "role": "writer",
+    "scope": "clone writer handshake only",
+    "temporary_unit_stopped": true,
+    "worker_directory_mode": "0555",
+    "worker_file_mode": "0444",
+    "worker_uid": 65534,
+    "permissions": "The temporary mount used kernel default_permissions with root-owned 0444 files and 0555 directories. The unprivileged child had no write access. The parent sent a denial in response to ready.",
+    "current_sha256_matched_checkpoint": true
+  },
+  "missing_mount_launch": {
+    "child_exit": 2,
+    "ready_bytes": 0,
+    "stdout_bytes": 0,
+    "reason": "invalid scoped clone directory"
+  }
+}

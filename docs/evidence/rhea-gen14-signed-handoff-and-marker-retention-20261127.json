@@ -1,0 +1,328 @@
+{
+  "schema": 1,
+  "scope": "Rhea disposable full clone, signed reader handoff, and manifest-publication experiments",
+  "signed_handoff_source": "63b5a1490894a7bc3ef28a42fd6d7e9dafef65d9",
+  "qualification_source": "d5dc819d87d45213369f562ffde3eae24b528408",
+  "clone_checkpoint": {
+    "certificate_sha256": "2d26a443de2cb899b3909cc53a815b670f61570022d69a576c73b0ed395b2774",
+    "certified_rewrites": 9,
+    "clean_cache_files": 3,
+    "completed_unix": 1795734995,
+    "generation": 13,
+    "metadata_bodies_verified_twice": 8,
+    "metadata_heads_verified_before_and_after": 8,
+    "prepared_sha256": "a54deaacf378bc8e14d2a95f349bec6bddc0cc3ac59ea8f13785bf1d77786a8b",
+    "production": {
+      "container": "2652b474858a0c2f15771e03d20abbc028230a8bc61cd5662c484a458258adeb",
+      "erroredFiles": 0,
+      "mount_process": {
+        "boot_id": "6fc54ca7-d64a-4125-98fa-d0a728485237",
+        "exe_sha256": "3afdc72c395651badd72426cc218b0420249ceb10960c03b539939e56e60bf2e",
+        "pid": 947812,
+        "start_ticks": 67996055
+      },
+      "process": {
+        "boot_id": "6fc54ca7-d64a-4125-98fa-d0a728485237",
+        "exe_sha256": "bc5945feb8bd26203ebfafea5ce1878bb2e32cb8fb50ab7ae395cfb1e1aaaef1",
+        "pid": 947728,
+        "start_ticks": 67995931
+      },
+      "queue": 0,
+      "uploadsInProgress": 0,
+      "uploadsQueued": 0
+    },
+    "receipt_sha256": "3bf64daeee3de84c444f61013fd6503ab2b6fa8b8b537d4028378bd2f20d38ca",
+    "reopen": {
+      "elapsed_seconds": 4.953984593,
+      "format_major_version": "013",
+      "marked_files": 93686,
+      "mount_read_only": true,
+      "read_only": true,
+      "sst_bytes": 7786594079552,
+      "sst_count": 93697
+    },
+    "restored_reader": {
+      "argv_sha256": "ac15122a64999cebabe9d0693f9fc7c8198f7f1f733f074055475fac6fccca99",
+      "mount": "59 29 0:71 / /mnt/rhea-pebble-lab-reader-20261102 ro,nosuid,nodev,relatime shared:244 - fuse.rclone rhea_pebble_lab_reader{_9Ic9}:rhea-pebble-lab-20261101-39037c6f01/rhea ro,user_id=0,group_id=0",
+      "process": {
+        "boot_id": "6fc54ca7-d64a-4125-98fa-d0a728485237",
+        "exe_sha256": "dc1ec3109000e4d36c8d14efac6d4c4158d1b860853cb75c09dcc9f6dded420b",
+        "pid": 2499988,
+        "start_ticks": 177682572
+      }
+    },
+    "result": "PASS",
+    "scope": "rhea-clone-reader-handoff-deny-before-db-open-v1",
+    "stopped_reader": {
+      "argv_sha256": "5f26b553381556118778c7499234cb1e2ffcd6d21ca2c51af43cf302cf6cd65b",
+      "mount": "59 29 0:71 / /mnt/rhea-pebble-lab-reader-20261102 rw,nosuid,nodev,relatime shared:342 - fuse.rclone rhea_pebble_lab_reader{_9Ic9}:rhea-pebble-lab-20261101-39037c6f01/rhea rw,user_id=0,group_id=0",
+      "process": {
+        "boot_id": "6fc54ca7-d64a-4125-98fa-d0a728485237",
+        "exe_sha256": "dc1ec3109000e4d36c8d14efac6d4c4158d1b860853cb75c09dcc9f6dded420b",
+        "pid": 947668,
+        "start_ticks": 67995489
+      }
+    },
+    "worker": {
+      "allow": false,
+      "exit_code": 2,
+      "ready": true,
+      "request_sent": false,
+      "worker_uid": 65534,
+      "writer_pid": 2498723
+    }
+  },
+  "signed_handoff": {
+    "completion_sha256": "7ef9fe34aafd20beaadbf3728b10d93e9b949a17e5b2caef6f8daa431466c7f8",
+    "release": {
+      "files": {
+        "inspector": "1e3e16624ebd61ed3cccf4cd680be467dc9faa5861a685961783fd80bf8a20a6",
+        "rhea_gen14_clone_credentials.py": "283ceb94a7ef8aef7a46b7ae834c508bae3bc5d53eb92512eaa8886a4324d081",
+        "rhea_gen14_create_iam_credentials.py": "adeec619b4747d6e21fbe245a16fe55eba4a107305ec9750e16be50d6ccfe421",
+        "rhea_gen14_iam_admin_acceptance.py": "ae7299650e6d350112379440a882b15f31748a9402a8192f4e29baa74400a20b",
+        "rhea_gen14_live_iam_acceptance.py": "eb46ed0a0bf0865ceab4176ac816970b7e1d43089821eeeef244b96570a3c4c6",
+        "rhea_gen14_rclone_rehearsal.py": "20df9725b58fef510f0ceaf15bdd22e7aa6b0b843cd77c5de701bfb0087ee471",
+        "rhea_gen14_reader_reopen.py": "742c9c75bd5269e931cd556023f2542041980750391900b870de16f081d8244e",
+        "rhea_gen14_recover_iam_policy.py": "f96d544da2bc6a2de280c5685043be1d910e2d753b5e46a10fef59e5bce68f5d",
+        "rhea_gen14_signed_handoff.py": "ade5e8f8b78e34fae003ce51c3cac985ae55249ed4e0c132ef1e4a56baccc291",
+        "rhea_multi_sst_marker_iam.py": "6e0b941185ac49de1f60a36f98ca5ed3122720c9c59fc39320a86e750bf44c0a",
+        "rhea_multi_sst_reader_preflight.py": "890741ab1aebb656369168039bd259452f481bb7946e239a65b6e6cb9afc51e8",
+        "rhea_multi_sst_signed_admission.py": "604970652d468d65008dc0b0b10367f6e8007de2f3fc2807b9b47f3e82e23574",
+        "worker": "fac0d0971fa93ccb33db4e02937e777a8395b0ee95644201adedb1d660451347"
+      },
+      "scope": "rhea-clone-reader-handoff-deny-before-db-open-v1"
+    },
+    "claims": {
+      "binding": {
+        "certificate_sha256": "2d26a443de2cb899b3909cc53a815b670f61570022d69a576c73b0ed395b2774",
+        "clean_cache_files": 3,
+        "metadata_heads": 8,
+        "prepared_sha256": "a54deaacf378bc8e14d2a95f349bec6bddc0cc3ac59ea8f13785bf1d77786a8b",
+        "production": {
+          "container": "2652b474858a0c2f15771e03d20abbc028230a8bc61cd5662c484a458258adeb",
+          "erroredFiles": 0,
+          "mount_process": {
+            "boot_id": "6fc54ca7-d64a-4125-98fa-d0a728485237",
+            "exe_sha256": "3afdc72c395651badd72426cc218b0420249ceb10960c03b539939e56e60bf2e",
+            "pid": 947812,
+            "start_ticks": 67996055
+          },
+          "process": {
+            "boot_id": "6fc54ca7-d64a-4125-98fa-d0a728485237",
+            "exe_sha256": "bc5945feb8bd26203ebfafea5ce1878bb2e32cb8fb50ab7ae395cfb1e1aaaef1",
+            "pid": 947728,
+            "start_ticks": 67995931
+          },
+          "queue": 0,
+          "uploadsInProgress": 0,
+          "uploadsQueued": 0
+        },
+        "reader": {
+          "argv_sha256": "5f26b553381556118778c7499234cb1e2ffcd6d21ca2c51af43cf302cf6cd65b",
+          "mount": "59 29 0:71 / /mnt/rhea-pebble-lab-reader-20261102 rw,nosuid,nodev,relatime shared:342 - fuse.rclone rhea_pebble_lab_reader{_9Ic9}:rhea-pebble-lab-20261101-39037c6f01/rhea rw,user_id=0,group_id=0",
+          "process": {
+            "boot_id": "6fc54ca7-d64a-4125-98fa-d0a728485237",
+            "exe_sha256": "dc1ec3109000e4d36c8d14efac6d4c4158d1b860853cb75c09dcc9f6dded420b",
+            "pid": 947668,
+            "start_ticks": 67995489
+          }
+        },
+        "reader_config_sha256": "ec60a6310fd258da41abcf0724f4bc3555d27e8901cdfc1e6d22a732be4b8cc1",
+        "release_sha256": "446b7a37437f91306f85b13e00a6938e82a243a3c0c844c8c1a68a520879ff7f",
+        "restored_cache_mode": "off",
+        "restored_read_only": true,
+        "scope": "rhea-clone-reader-handoff-deny-before-db-open-v1",
+        "target": "rhea-pebble-lab-20261101-39037c6f01/rhea/pebbleds/",
+        "worker_request": null
+      },
+      "expires": 1795735430,
+      "issued": 1795734830,
+      "nonce": "3e8869ff6d584c2afcae12f33bda80ff1a2ea1fbc1400edd78020f39a5043bbc"
+    },
+    "signatures_base64": {
+      "handoff.sig": "IP+D9k1I7eekI87WR2JGtsh6kYqfBynyGlU1X+9xa8Oao8rjaLa41HPRwFUiX12tFs9qZOUKLpSTqmUxkbzlCw==",
+      "release.sig": "kxK5oj2K1GYzqewTCIEg4F1sxXTdFuD+kx8T6qBwR2zTStUCwT0SUBiRkyQoGWlzamwZYtkgLHG/Mr19hcwJAA==",
+      "handoff.pub": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQXgrNU5DcFZmcFhzMXJwbi9xc3Q2Zk51dk03enJnYkM1WnY1MWtyOGgxRjA9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo=",
+      "release.pub": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQUNDaG9RemxzMU80WElUSnY3ZTkwSW43NUtnNzRMUDhBelF3WS9ma0UrUTg9Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo="
+    },
+    "consumed_nonce": {
+      "claims_sha256": "3bf64daeee3de84c444f61013fd6503ab2b6fa8b8b537d4028378bd2f20d38ca",
+      "nonce": "3e8869ff6d584c2afcae12f33bda80ff1a2ea1fbc1400edd78020f39a5043bbc",
+      "schema": 1,
+      "signature_sha256": "c2aff0ceadfa66111e5e5e6311f4f0744d5b35cc637079edc428846372e9e4be"
+    },
+    "canonical_encoding": "Sorted compact UTF-8 JSON with a trailing newline. The detached signatures cover the domain bytes followed by the canonical payload.",
+    "release_domain": "RHEA-MULTI-SST-DEPLOYMENT-v1\u0000",
+    "admission_domain": "RHEA-MULTI-SST-ADMISSION-v1\u0000"
+  },
+  "restore": {
+    "original_reader_exit": {
+      "ActiveState": "failed",
+      "DropInPaths": "",
+      "ExecMainCode": "1",
+      "ExecMainPID": "947668",
+      "ExecMainStatus": "143",
+      "FragmentPath": "/run/systemd/transient/rhea-pebble-lab-reader-fast-mount-20261102.service",
+      "Group": "",
+      "LoadState": "loaded",
+      "MainPID": "0",
+      "NeedDaemonReload": "no",
+      "Result": "exit-code",
+      "SubState": "failed",
+      "User": ""
+    },
+    "intervention": "The old transient reader exited with status 143. Its signed PID and absent mount were checked before systemd's failed state was reset. The original qualification launcher required its executable to be visible before systemd installed the private bind. A temporary read-only bind of the pinned inspector allowed the original signed release to complete. The empty host placeholder was restored.",
+    "corrected_source": "d5dc819d87d45213369f562ffde3eae24b528408",
+    "corrected_inspector_seconds": 4.381409803,
+    "corrected_host_placeholder_bytes": 0,
+    "installed_readback": "/root/.local/share/rhea-gen14-handoff-readback-20261127/rhea_gen14_signed_handoff.py",
+    "readback_release_sha256": "d323bf0f64f2e3b232845e32cf556797bd0b1fe4458f776bca87442819c3f732",
+    "readback_completed_utc": "2026-11-26T23:32:03Z",
+    "readback_result": "PASS",
+    "readback_receipt_sha256": "7ef9fe34aafd20beaadbf3728b10d93e9b949a17e5b2caef6f8daa431466c7f8"
+  },
+  "marker_history": {
+    "result": "PASS",
+    "scope": "Two independent raw Wasabi list-object-versions enumerations of the clone marker prefix against the generation-13 certificate",
+    "enumerations": 2,
+    "version_rows": 38,
+    "tombstone_rows": 18,
+    "history_sha256": "4123aed76ddbc6db96f2d189c4cf28a9fd5976d38d32514be9814fa31c804db0",
+    "baseline_manifest": "marker.manifest.000016.MANIFEST-47475342",
+    "baseline_format_marker": "marker.format-version.000012.013",
+    "proof_source_sha256": "6cf5df0bbe6eced3f1f65c02bcb2199b066b674dc2c73b6ff34acab8f496be85"
+  },
+  "conditional_retirement": {
+    "first_fixture": {
+      "bucket": "rhea-gen14-iam-test-20261111-48be1ecd7cc848fb",
+      "initial_version_readable": true,
+      "key": "rhea/pebbleds/retirement-if-match-20261127.sst",
+      "matching": null,
+      "result": "STALE_ETAG_ACCEPTED",
+      "scope": "disposable ordinary empty object",
+      "stale": {
+        "etag": null,
+        "http": 204,
+        "tombstone": true,
+        "version": "001795735280341978050-faG9Rid4ag"
+      },
+      "version_history": [
+        {
+          "deleted": false,
+          "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
+          "latest": false,
+          "version": "001795735280193010999-y4bTJ6udW5"
+        },
+        {
+          "deleted": true,
+          "etag": null,
+          "latest": true,
+          "version": "001795735280341978050-faG9Rid4ag"
+        }
+      ]
+    },
+    "signed_wire_fixture": {
+      "bucket": "rhea-gen14-iam-test-20261111-48be1ecd7cc848fb",
+      "initial_version_readable": true,
+      "key": "rhea/pebbleds/retirement-signed-if-match-20261127.sst",
+      "matching": null,
+      "result": "STALE_ETAG_ACCEPTED",
+      "scope": "disposable ordinary empty object",
+      "stale": {
+        "etag": null,
+        "http": 204,
+        "signed_header": "If-Match",
+        "tombstone": true,
+        "version": "001795735654381127647-pjXIs3DEer"
+      },
+      "version_history": [
+        {
+          "deleted": false,
+          "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
+          "latest": false,
+          "version": "001795735654236741549-PQkcHcqzej"
+        },
+        {
+          "deleted": true,
+          "etag": null,
+          "latest": true,
+          "version": "001795735654381127647-pjXIs3DEer"
+        }
+      ]
+    },
+    "wire_create": {
+      "etag": "\"d41d8cd98f00b204e9800998ecf8427e\"",
+      "http": 200,
+      "signed_header": "If-None-Match",
+      "tombstone": false,
+      "version": "001795735654236741549-PQkcHcqzej"
+    },
+    "wire_stale_delete_intent": {
+      "etag": "\"00000000000000000000000000000000\"",
+      "expected_version": "001795735654236741549-PQkcHcqzej"
+    },
+    "scope": "The disposable IAM-test writer created two new ordinary empty fixture keys on separate runs. Each stale If-Match DELETE produced a new reversible tombstone. The second run checked the signed header and exact HTTPS target before transmission. All original versions remained readable."
+  },
+  "pebble_disk_fixtures": {
+    "pebble": "v1.1.3 with the repository migration patch set",
+    "closed_physical_rewrites_per_fixture": 2,
+    "raw_read_only_with_both_markers": "PASS",
+    "raw_writable_with_deletion_denied": "permission denied on obsolete-marker cleanup",
+    "writable_after_exact_fixture_retirement": "PASS",
+    "writable_with_only_certified_old_marker_omitted_from_listing": "PASS",
+    "both_raw_marker_files_preserved": true,
+    "all_manifest_deletes_denied_in_retained_view": true,
+    "missing_published_successor": "listing refused",
+    "deployment": "The retained-marker listing is exercised in a disk fixture. The live checkpoint verifier and live writer still require integration before the clone batch can use this protocol."
+  },
+  "build": {
+    "prepared_binary_sha256": "fac0d0971fa93ccb33db4e02937e777a8395b0ee95644201adedb1d660451347",
+    "rebuild_sha256": "fac0d0971fa93ccb33db4e02937e777a8395b0ee95644201adedb1d660451347",
+    "build_log_sha256": "cde670677869beaa124f897f9c0dcd9cddce0feedf4543ecef415a1b460496e1",
+    "go": "go1.24.13",
+    "tested_build_umask": "0002",
+    "original_prepared_request_preserved": true
+  },
+  "post_run": {
+    "checked_unix": 1795735723,
+    "certificate_sha256": "2d26a443de2cb899b3909cc53a815b670f61570022d69a576c73b0ed395b2774",
+    "legacy_state_sha256": "c1563e322c496ca479c26501ef3f8ae2b71091565ee8fa227e24b4292f2cd90c",
+    "prepared_sha256": "a54deaacf378bc8e14d2a95f349bec6bddc0cc3ac59ea8f13785bf1d77786a8b",
+    "generation": 13,
+    "rewrites": 9,
+    "pending": null,
+    "metadata_heads": 8,
+    "read_only": true,
+    "reader_pid": 2499988,
+    "writer_pid": 0,
+    "production_queue": 0,
+    "production_mount_pid": 947812,
+    "lock_available_at_start": true,
+    "services": {
+      "rhea-pebble-lab-full-clone-20261102.service": 0,
+      "rhea-ipfs-wasabi-kubo.service": 0,
+      "rhea-broken-pin-walk-20261026.service": 0
+    }
+  },
+  "live_two_sst_batch_started": false,
+  "production_migration_started": false,
+  "validation": {
+    "offline_audit": "Both detached Ed25519 signatures, archived module pins, consumed claims and the original completion receipt verified.",
+    "go_disk_fixtures": "Both retained-manifest cases and the complete, second-revocation, stale-request and disconnect supervisory cases passed.",
+    "python": {
+      "tests": 1149,
+      "errors": 0,
+      "failures": 0,
+      "result": "PASS",
+      "seconds": 137.61,
+      "source_commit": "d5dc819d87d45213369f562ffde3eae24b528408",
+      "environment": "Rhea unprivileged test service with a private empty /data mount"
+    }
+  },
+  "next_clone_checkpoint": {
+    "implementation": "Bind the independently verified retained marker versions to the live before-publication proof, after-publication proof and the subsequent writer listing. The full cloud inventory must include both physical marker keys after publication. The logical view can omit the superseded name after the new key is proved.",
+    "trial": "Use a fresh handoff bound to the restored read-only reader. Run the two physical rewrites, drain and verify their data, publish the exact new marker, and cold-reopen the clone before certifying generation 14.",
+    "request_lineage": "The original prepared record and binary are intact. If integration changes the compiled writer, retain the original preparation and bind the new binary in a separate preparation.",
+    "production": "Bulk clone rewrites, format 014 finalization, block and pin reconciliation, and cutover remain."
+  }
+}

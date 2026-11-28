@@ -1,0 +1,231 @@
+{
+  "schema": 1,
+  "qualification_source_commit": "cae08e194020a1da3d3a1e8956dc47de157a26ab",
+  "publication_source_commit": "6e267714643b20c376ae4d6fdb5d724fd504aee8",
+  "observed_at_utc": "2026-11-26T21:33:16.919187+00:00",
+  "generation13_reader": {
+    "initial_reproduction": {
+      "certified_clone": true,
+      "scope": "private read-only bind of the parked reader under the host writer lock",
+      "kernel_rejected_writable_CURRENT": "EROFS",
+      "original_inspector_sha256": "6c0f7cb23cb4f5dcf42898334c70df65574ab21769024091c5036123bbbb3bc8",
+      "original_pebble_open_error": "LOCK: read-only file system",
+      "corrected_private_reopen_seconds": 5.841092052,
+      "inspector_sha256": "24a24e789b317723d6715f33b7a613836ed98bda6cf6800c048e8173dd9a695a"
+    },
+    "fresh_rclone": {
+      "certificate_sha256": "2d26a443de2cb899b3909cc53a815b670f61570022d69a576c73b0ed395b2774",
+      "elapsed_seconds": 4.868548697,
+      "format_major_version": "013",
+      "fresh_rclone_read_only": true,
+      "generation": 13,
+      "host_writer_lock_held": true,
+      "inspector_sha256": "1e3e16624ebd61ed3cccf4cd680be467dc9faa5861a685961783fd80bf8a20a6",
+      "inspector_uid": 65534,
+      "marked_files": 93686,
+      "metadata_bytes_each_pass": 31560372,
+      "metadata_files_verified_before_and_after": 8,
+      "mount_read_only": true,
+      "parked_reader_preserved": true,
+      "private_network_for_inspector": true,
+      "rclone_sha256": "dc1ec3109000e4d36c8d14efac6d4c4158d1b860853cb75c09dcc9f6dded420b",
+      "result": "PASS",
+      "sst_bytes": 7786594079552,
+      "sst_count": 93697,
+      "vfs_cache_mode": "off",
+      "writable_open": "EROFS"
+    },
+    "qualification_service": {
+      "unit": "rhea-gen14-reader-qualification-20261127.service",
+      "properties": [
+        "PrivateMounts=yes",
+        "PrivateTmp=yes",
+        "ProtectSystem=strict",
+        "ProtectHome=yes",
+        "NoNewPrivileges=yes",
+        "ProtectKernelTunables=yes",
+        "RuntimeMaxSec=360",
+        "RuntimeDirectory=rhea-gen14-reader-qualification-20261127",
+        "TemporaryFileSystem=/mnt:ro",
+        "BindPaths=/run/rhea-gen14-reader-qualification-20261127:/mnt/rhea-pebble-lab-reader-20261102",
+        "BindReadOnlyPaths=VERIFIED_INSPECTOR_PATH:/run/rhea-gen14-ro-inspector",
+        "LoadCredential=reader.conf:/root/.config/rclone/rhea-pebble-lab-reader-20261102.conf"
+      ],
+      "exec_start": [
+        "/usr/bin/flock",
+        "--exclusive",
+        "--nonblock",
+        "--no-fork",
+        "/run/rhea-wasabi-lab/writer.lock",
+        "/usr/bin/rclone",
+        "--config",
+        "/run/credentials/rhea-gen14-reader-qualification-20261127.service/reader.conf",
+        "--s3-no-check-bucket",
+        "--s3-no-head-object",
+        "--use-server-modtime",
+        "--fast-list",
+        "mount",
+        "rhea_pebble_lab_reader:rhea-pebble-lab-20261101-39037c6f01/rhea",
+        "/mnt/rhea-pebble-lab-reader-20261102",
+        "--allow-non-empty",
+        "--read-only",
+        "--vfs-cache-mode",
+        "off",
+        "--cache-dir",
+        "/tmp/rhea-qualification-vfs-cache",
+        "--allow-other",
+        "--uid",
+        "65534",
+        "--gid",
+        "65534",
+        "--file-perms",
+        "0444",
+        "--dir-perms",
+        "0555",
+        "--poll-interval",
+        "0",
+        "--log-level",
+        "ERROR"
+      ],
+      "observer": "scripts/rhea_gen14_reader_reopen.py",
+      "cleanup": "Temporary service stopped. Runtime directory removed and the existing host writer lock reacquired.",
+      "coverage": "Current generation-13 certificate and eight closed metadata objects. No payload scrub of all SSTs."
+    },
+    "build": {
+      "toolchain": "go1.24.13 linux/amd64",
+      "module_pins": "cmd/pebble-format-v1/pilot/deps/go.mod and go.sum",
+      "build_flags": [
+        "CGO_ENABLED=0",
+        "-trimpath",
+        "-buildvcs=false",
+        "-ldflags=-buildid=",
+        "-mod=readonly"
+      ],
+      "package": "./cmd/pebble-format-v1/inspect"
+    }
+  },
+  "interrupted_second_rewrite": {
+    "scope": "real on-disk Pebble fixture on Rhea",
+    "cgo": false,
+    "go": "go1.24.13",
+    "log_sha256": "a508c738c7ffabce98e466f3a5b2337879f3a4bf22b3898f791beea66b8566ad",
+    "result": "PASS",
+    "source_lock_sha256": "59bdad636c6a954536447e1a3af2910c03e3394d0202ed0f45f5447d25676c46",
+    "tests": [
+      "TestPilotDiskTwoSequentialSubprocessRewrites",
+      "TestPilotDiskSecondInterruptionAndClose/fail-second-output",
+      "TestPilotDiskSecondInterruptionAndClose/monitor-second",
+      "TestPilotDiskSecondInterruptionAndClose",
+      "TestPilotDiskProcessExitAfterSecondIntent"
+    ],
+    "confirmed": [
+      "first of two rewrites survives process exit after second intent",
+      "no clean close receipt after abrupt exit",
+      "failed second output and monitor cancellation both prohibit replay and certification",
+      "attempted retry after failed second output or monitor cancellation writes zero SST and metadata bytes",
+      "two sequential subprocess rewrites complete in the control"
+    ]
+  },
+  "lost_publication_acknowledgement": {
+    "scope": "disposable Wasabi IAM fixtures only",
+    "payload_bytes": 0,
+    "crash_point": "Sending process exits with status 75 after one successful conditional PUT and before persisting or reading the provider version receipt.",
+    "observation": "Separate process observes two equal version-history snapshots and checks the current body, ETag and version. Exact object state is reconciled; receipt provenance and clone certification are separate.",
+    "create_only_object": "fresh ordinary disposable object, fixture writer role",
+    "conditional_replace_object": "existing exact protected disposable manifest marker, fixture publisher role",
+    "cases": {
+      "create": {
+        "after_sha256": "aabf27ba7e36e444ccfd03a3acb5adc448695af062771ae029a7d9aa33b81977",
+        "after_versions": 13,
+        "before_sha256": "87db1ae98d77ae3f306dcf5f7130f6c1dd42d927610ebdb8792c1a917303d423",
+        "before_versions": 12,
+        "case": "create",
+        "checkpoint_certified": false,
+        "condition": "IfNoneMatch",
+        "decision": "EXPECTED_VERSION_OBSERVED",
+        "intent_sha256": "a0d16cca0e5a8dcc7cb51ba029ee6f1cfc56fa980f05799e024ccdd663682637",
+        "observed_at_utc": "2026-11-26T21:23:29.785456+00:00",
+        "observed_version": "001795728177361296701-WhMICVo03o",
+        "provider_writes_during_inspection": 0,
+        "retry_allowed": false,
+        "role": "writer",
+        "scope": "DISPOSABLE_BUCKET_ONLY",
+        "observation_file_sha256": "0a96b9c0a1e10b745ed401921ee96ecf20662e38ea1a23aa354f22818dec31ce"
+      },
+      "replace": {
+        "after_sha256": "9f0a40366bc5805e4c48096fbd0f30ce1d4faed1efa0e44930b714e09c132421",
+        "after_versions": 14,
+        "before_sha256": "aabf27ba7e36e444ccfd03a3acb5adc448695af062771ae029a7d9aa33b81977",
+        "before_versions": 13,
+        "case": "replace",
+        "checkpoint_certified": false,
+        "condition": "IfMatch",
+        "decision": "EXPECTED_VERSION_OBSERVED",
+        "intent_sha256": "df0c1ae5b251010f19271a4ebd46c804cf484615f441f8a62e084c1b315772a6",
+        "observed_at_utc": "2026-11-26T21:24:59.445874+00:00",
+        "observed_version": "001795728232794604350-Mnyk-i3qob",
+        "provider_writes_during_inspection": 0,
+        "retry_allowed": false,
+        "role": "publisher",
+        "scope": "DISPOSABLE_BUCKET_ONLY",
+        "observation_file_sha256": "6c3d6cd3ac1e9fb151c52dc81056bbdc14e7ece3d8f5d87f21af13e8a926632d"
+      }
+    }
+  },
+  "post_run": {
+    "checked_at": "2026-11-26T21:32:43.202557+00:00",
+    "generation": 13,
+    "pending": null,
+    "rewrites": 9,
+    "writer_lock_released": true,
+    "state_sha256": "c1563e322c496ca479c26501ef3f8ae2b71091565ee8fa227e24b4292f2cd90c",
+    "certificate_sha256": "2d26a443de2cb899b3909cc53a815b670f61570022d69a576c73b0ed395b2774",
+    "services": {
+      "rhea-ipfs-wasabi-rclone-mount": [
+        "947728",
+        "active"
+      ],
+      "rhea-ipfs-wasabi-kubo": [
+        "0",
+        "inactive"
+      ],
+      "rhea-broken-pin-walk-20261026": [
+        "0",
+        "inactive"
+      ],
+      "rhea-pebble-lab-reader-fast-mount-20261102": [
+        "947668",
+        "active"
+      ],
+      "rhea-pebble-lab-full-clone-20261102": [
+        "0",
+        "inactive"
+      ],
+      "rhea-gen14-reader-qualification-20261127": [
+        "0",
+        "inactive"
+      ]
+    },
+    "candidate_runtime_absent": true,
+    "production_rc": {
+      "checked_at": "2026-11-26T21:33:16.919187+00:00",
+      "queue_length": 0,
+      "disk": {
+        "bytesUsed": 0,
+        "uploadsQueued": 0,
+        "uploadsInProgress": 0,
+        "erroredFiles": 0,
+        "outOfSpace": false
+      }
+    },
+    "parked_reader_fuse_mode": "rw",
+    "qualification_reader_fuse_mode": "ro",
+    "clone_trial_started": false,
+    "format": "013"
+  },
+  "remaining": [
+    "integrate the guarded live two-SST writer and the host controller with current host identities",
+    "run the generation-14 full-clone checkpoint with closed output, data drain, two independent object-store proofs and read-only reopen",
+    "measure larger batches, finish format 014, reconcile Kubo blocks and pins, then assess production cutover"
+  ]
+}
